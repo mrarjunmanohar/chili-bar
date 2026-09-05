@@ -46,8 +46,13 @@ notifications quickly, set `workMinutes: 1` and `warningMinutes: 0.33`.
 
 Zone hours are `"HH:mm"` strings (plain integer hours still decode, for older configs). A
 `closes` earlier than `opens` means an **overnight shift**, which belongs to the day it started
-— so Friday 18:30–02:30 counts as work at 01:00 on Saturday, but Saturday night does not. This
-is not an edge case here: anyone working another continent's hours has one.
+— so Friday 18:30–02:30 counts as work at 01:00 on Saturday, but Saturday night does not.
+
+`"hoursIn"` names the zone the hours are **defined in**, when the person works someone else's
+hours. Kanpur working Montreal's 9–5 is written as `"opens": "09:00", "closes": "17:00",
+"hoursIn": "America/Montreal"` — the clock still shows IST, the window is evaluated on
+Montreal's clock. Prefer this over converting hours by hand: a hand-converted fixed window
+drifts by an hour whenever one zone changes DST and the other doesn't, and India never does.
 
 `Scripts/test.sh` exists because swift-testing under CLT needs four things bolted on:
 

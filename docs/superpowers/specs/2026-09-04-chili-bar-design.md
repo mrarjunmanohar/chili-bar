@@ -51,6 +51,20 @@ The `●/○` dot is working-hours status; the same dot appears in the rotation.
 
 Requires AppKit (`NSTrackingArea`); see Constraints.
 
+### Working hours across timezones *(added 2026-09-06)*
+
+A zone's hours may be **borrowed from another zone** via `hoursIn`. A colleague in Kanpur working
+Montreal's 9–5 is written as Montreal's hours plus `"hoursIn": "America/Montreal"`, rather than a
+hand-converted IST window.
+
+This is a correctness matter, not convenience. A fixed `18:30–02:30` IST window matches Montreal
+9–5 only while Eastern is on EDT; once it returns to EST the same window reports the colleague
+online an hour before their day starts and offline an hour before it ends, because India does not
+observe daylight saving. Naming the reference zone stays correct permanently.
+
+Hours are `HH:mm`, and a `closes` earlier than `opens` marks an overnight shift, which belongs to
+the day it started.
+
 ## 3. The timer
 
 States: `idle → work → rest → work → …`

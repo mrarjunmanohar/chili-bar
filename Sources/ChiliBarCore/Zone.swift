@@ -16,18 +16,49 @@ public struct Zone: Equatable, Sendable {
     /// happens to anyone working another continent's hours.
     public let closesAt: TimeOfDay
 
-    public init(label: String, timeZone: TimeZone, opensAt: TimeOfDay, closesAt: TimeOfDay) {
+    /// The zone the working hours are *defined in*, when that differs from where the person is.
+    ///
+    /// A colleague in Kanpur working Montreal's 9–5 is the case this exists for. Storing that
+    /// as a fixed IST window silently drifts by an hour twice a year, because Montreal observes
+    /// daylight saving and India does not. Naming the reference zone instead keeps it correct
+    /// permanently, and says what is actually true: they work Montreal's hours.
+    public let hoursTimeZoneOverride: TimeZone?
+
+    /// The zone the working window is evaluated in — the reference zone if one is set,
+    /// otherwise the zone's own.
+    public var hoursTimeZone: TimeZone { hoursTimeZoneOverride ?? timeZone }
+
+    public init(
+        label: String,
+        timeZone: TimeZone,
+        opensAt: TimeOfDay,
+        closesAt: TimeOfDay,
+        hoursIn: TimeZone? = nil
+    ) {
         self.label = label
         self.timeZone = timeZone
         self.opensAt = opensAt
         self.closesAt = closesAt
+        self.hoursTimeZoneOverride = hoursIn
     }
 
     /// Fails rather than silently falling back to UTC, so a typo in a timezone identifier
     /// surfaces as a bad config file instead of a clock that is quietly wrong.
-    public init?(label: String, timeZoneID: String, opensAt: TimeOfDay, closesAt: TimeOfDay) {
+    public init?(
+        label: String,
+        timeZoneID: String,
+        opensAt: TimeOfDay,
+        closesAt: TimeOfDay,
+        hoursIn: TimeZone? = nil
+    ) {
         guard let timeZone = TimeZone(identifier: timeZoneID) else { return nil }
-        self.init(label: label, timeZone: timeZone, opensAt: opensAt, closesAt: closesAt)
+        self.init(
+            label: label,
+            timeZone: timeZone,
+            opensAt: opensAt,
+            closesAt: closesAt,
+            hoursIn: hoursIn
+        )
     }
 
     /// Convenience for whole-hour windows.
@@ -47,7 +78,10 @@ public struct Zone: Equatable, Sendable {
     /// handled without any offset arithmetic here.
     public func isWorkingHours(at date: Date) -> Bool {
         var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
+        // Borrowed hours are evaluated on the reference zone's clock. That also removes the
+        // overnight wrap for the common case: Montreal 9–5 is a plain daytime window there,
+        // even though it lands after midnight in Kanpur.
+        calendar.timeZone = hoursTimeZone
 
         let components = calendar.dateComponents([.hour, .minute, .weekday], from: date)
         guard let hour = components.hour,
@@ -92,6 +126,7 @@ extension Zone: Codable {
         case timeZoneID = "timezone"
         case opensAt = "opens"
         case closesAt = "closes"
+        case hoursIn
     }
 
     public init(from decoder: any Decoder) throws {
@@ -106,11 +141,24 @@ extension Zone: Codable {
             )
         }
 
+        var hoursIn: TimeZone?
+        if let reference = try container.decodeIfPresent(String.self, forKey: .hoursIn) {
+            guard let referenceZone = TimeZone(identifier: reference) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .hoursIn,
+                    in: container,
+                    debugDescription: "'\(reference)' is not a known timezone identifier"
+                )
+            }
+            hoursIn = referenceZone
+        }
+
         self.init(
             label: try container.decode(String.self, forKey: .label),
             timeZone: timeZone,
             opensAt: try Self.decodeTime(from: container, forKey: .opensAt),
-            closesAt: try Self.decodeTime(from: container, forKey: .closesAt)
+            closesAt: try Self.decodeTime(from: container, forKey: .closesAt),
+            hoursIn: hoursIn
         )
     }
 
@@ -149,5 +197,7 @@ extension Zone: Codable {
         // Always written as HH:mm so half-hour windows survive a round trip.
         try container.encode(opensAt.description, forKey: .opensAt)
         try container.encode(closesAt.description, forKey: .closesAt)
+        // Omitted when unused, so the file doesn't imply a setting is doing something it isn't.
+        try container.encodeIfPresent(hoursTimeZoneOverride?.identifier, forKey: .hoursIn)
     }
 }
