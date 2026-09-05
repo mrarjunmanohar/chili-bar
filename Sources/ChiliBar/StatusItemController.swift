@@ -3,7 +3,7 @@ import SwiftUI
 import ChiliBarCore
 
 /// Owns the menu bar item: the rolling clock, the Pomodoro session, the hover peek and the panel.
-final class StatusItemController: NSObject, NSPopoverDelegate {
+final class StatusItemController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let formatter = ClockFormatter()
     private let notifier = Notifier()
@@ -20,10 +20,29 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     /// Runs only during a session, to drive the seconds ticking down.
     private var sessionTimer: Timer?
 
+    private var configWatcher: ConfigWatcher?
     private var hoverTracker: HoverTracker?
-    private var peekPopover: NSPopover?
-    private var panelPopover: NSPopover?
     private var pendingPeekClose: DispatchWorkItem?
+
+    // One popover and one hosting controller each, reused for the life of the app.
+    // Allocating a fresh NSPopover per hover orphaned the previous one — nothing held a
+    // reference to close it, so it stayed on screen behind the new one.
+    private lazy var peekController = NSHostingController(rootView: HoverPanelView(rows: []))
+    private lazy var peekPopover: NSPopover = {
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.contentViewController = peekController
+        return popover
+    }()
+
+    private lazy var panelController = NSHostingController(rootView: panelView())
+    private lazy var panelPopover: NSPopover = {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = panelController
+        return popover
+    }()
 
     /// Fully monospaced so letters hold their width too, not only digits.
     private let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -40,12 +59,36 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         render()
         startRotationTimer()
         scheduleNextMinuteTick()
+        startWatchingConfig()
+    }
+
+    /// Applies edits to zones.json and settings.json without a relaunch.
+    private func startWatchingConfig() {
+        let watcher = ConfigWatcher(
+            files: [ZoneStore.defaultURL, SettingsStore.defaultURL]
+        ) { [weak self] in
+            self?.reloadConfig()
+        }
+        watcher.start()
+        configWatcher = watcher
+    }
+
+    private func reloadConfig() {
+        configError = nil
+        loadSettings()
+        loadZones()
+        // A shorter zone list can leave the rotation pointing past the end.
+        rotation.updateZoneCount(zones.count)
+        render()
+        refreshPopovers()
+        NSLog("Chili Bar: reloaded config — \(zones.count) zones\(configError.map { ", error: \($0)" } ?? "")")
     }
 
     private func loadSettings() {
         do {
             timer.settings = try SettingsStore.loadOrCreateDefaults(at: SettingsStore.defaultURL)
         } catch {
+            // Note: reloadConfig() clears configError first, so this doesn't accumulate.
             // Defaults still give a working timer; the panel says why the file was ignored.
             configError = "settings.json: \(error.localizedDescription)"
         }
@@ -231,17 +274,15 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         )
     }
 
-    private func makePanelController() -> NSHostingController<MenuPanelView> {
-        NSHostingController(
-            rootView: MenuPanelView(
-                state: panelState(),
-                onStart: { [weak self] in self?.startWork() },
-                onPauseResume: { [weak self] in self?.togglePause() },
-                onSkip: { [weak self] in self?.skip() },
-                onChooseRest: { [weak self] in self?.chooseRest($0) },
-                onEditZones: { [weak self] in self?.openConfigFile() },
-                onQuit: { NSApp.terminate(nil) }
-            )
+    private func panelView(at date: Date = Date()) -> MenuPanelView {
+        MenuPanelView(
+            state: panelState(at: date),
+            onStart: { [weak self] in self?.startWork() },
+            onPauseResume: { [weak self] in self?.togglePause() },
+            onSkip: { [weak self] in self?.skip() },
+            onChooseRest: { [weak self] in self?.chooseRest($0) },
+            onEditZones: { [weak self] in self?.openConfigFile() },
+            onQuit: { NSApp.terminate(nil) }
         )
     }
 
@@ -250,15 +291,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         pendingPeekClose = nil
 
         // The panel already shows everything the peek would; stacking them looks broken.
-        guard !(panelPopover?.isShown ?? false), !(peekPopover?.isShown ?? false) else { return }
+        guard !panelPopover.isShown, !peekPopover.isShown else { return }
         guard let button = statusItem.button, !zones.isEmpty else { return }
 
-        let popover = NSPopover()
-        popover.behavior = .applicationDefined
-        popover.animates = false
-        popover.contentViewController = NSHostingController(rootView: HoverPanelView(rows: rows()))
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        peekPopover = popover
+        peekController.rootView = HoverPanelView(rows: rows())
+        peekPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
     /// Closes after a beat rather than immediately.
@@ -269,8 +306,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         pendingPeekClose?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
-            self?.peekPopover?.close()
-            self?.peekPopover = nil
+            self?.peekPopover.close()
         }
         pendingPeekClose = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
@@ -278,36 +314,30 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     @objc private func togglePanel() {
         pendingPeekClose?.cancel()
-        peekPopover?.close()
-        peekPopover = nil
+        peekPopover.close()
 
-        if let panelPopover, panelPopover.isShown {
+        if panelPopover.isShown {
             panelPopover.close()
-            self.panelPopover = nil
             return
         }
 
         guard let button = statusItem.button else { return }
 
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.delegate = self
-        popover.contentViewController = makePanelController()
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        panelPopover = popover
+        panelController.rootView = panelView()
+        panelPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
-    func popoverDidClose(_ notification: Notification) {
-        panelPopover = nil
-    }
-
-    /// Rebuilds whichever popover is open so its contents stay live.
+    /// Updates whichever popover is open so its contents stay live.
+    ///
+    /// Assigning `rootView` rather than replacing `contentViewController`: swapping the
+    /// content controller of a *visible* NSPopover leaves the old window on screen, which
+    /// showed up as a second, half-hidden peek panel stacked behind the real one.
     private func refreshPopovers() {
-        if let peekPopover, peekPopover.isShown {
-            peekPopover.contentViewController = NSHostingController(rootView: HoverPanelView(rows: rows()))
+        if peekPopover.isShown {
+            peekController.rootView = HoverPanelView(rows: rows())
         }
-        if let panelPopover, panelPopover.isShown {
-            panelPopover.contentViewController = makePanelController()
+        if panelPopover.isShown {
+            panelController.rootView = panelView()
         }
     }
 

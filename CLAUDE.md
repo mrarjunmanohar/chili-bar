@@ -92,6 +92,17 @@ that imports both `Testing` and `Foundation` fails with "no such module '_Testin
 
 - An `NSTrackingArea` owner must subclass **`NSResponder`**, not `NSObject`, or `mouseEntered`
   is never called. The error reads "method does not override any method from its superclass".
+- **Never assign `contentViewController` on a visible `NSPopover`.** AppKit leaves the old
+  window on screen, which shows up as a second, half-hidden panel stacked behind the real one.
+  Keep one popover and one `NSHostingController` and assign `rootView` instead. Same reasoning
+  applies to allocating a new `NSPopover` per interaction — the previous one is orphaned with
+  nothing holding a reference to close it.
+- **Config file watching needs mtime polling, not a kqueue watch.** Atomic saves (temp + rename)
+  replace the inode so a watch on the file goes deaf; in-place saves don't touch the directory so
+  a watch on the directory never fires. Only polling catches both.
+- Launching the binary directly (`.app/Contents/MacOS/ChiliBar`) is fine for reading stderr, but
+  notifications are refused that way — there's no LaunchServices identity. Use `open` for anything
+  involving notifications.
 - There is **no chili or pepper SF Symbol** (`carrot` and `flame` exist; chili does not). The
   filled and outline chili are custom template images that have to be authored.
 
