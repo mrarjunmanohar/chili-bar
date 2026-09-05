@@ -3,7 +3,8 @@
 macOS menu bar app: a **Pomodoro timer** + a **rolling world clock** that cycles through
 colleagues' timezones. Inspired by TomatoBar, but the world clock is the distinguishing feature.
 
-**Status: Stage 1 complete — the rolling world clock runs. Stage 2 (Pomodoro timer) not started.**
+**Status: Stages 1 and 2 complete — rolling world clock and Pomodoro timer both run.
+Stage 3 (settings UI, README, CI) not started.**
 
 Read `docs/superpowers/specs/2026-09-04-chili-bar-design.md` before doing any work here. It holds
 the approved behaviour spec, the decisions already made, and what is still open.
@@ -31,9 +32,17 @@ that way. Everything comes from the SDK: `AppKit`, `SwiftUI`, `Foundation`, `Use
 ## Build and test
 
 ```sh
-swift build                # app
+swift build                # compile only
 ./Scripts/test.sh          # tests — wraps the flags below; bare `swift test` WILL fail
+./Scripts/make-app.sh      # build dist/Chili Bar.app, then: open "dist/Chili Bar.app"
 ```
+
+Always run the bundled `.app`, never `.build/debug/ChiliBar` — `UNUserNotificationCenter`
+needs a real bundle identifier and `LSUIElement` needs the Info.plist.
+
+Config lives in `~/Library/Application Support/Chili Bar/` as `zones.json` and `settings.json`,
+both hand-edited until the Stage 3 settings UI. Durations are in **minutes** on disk. To test
+notifications quickly, set `workMinutes: 1` and `warningMinutes: 0.33`.
 
 `Scripts/test.sh` exists because swift-testing under CLT needs four things bolted on:
 

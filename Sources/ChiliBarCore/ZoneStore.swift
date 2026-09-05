@@ -14,38 +14,17 @@ public enum ZoneStore {
     ]
 
     /// `~/Library/Application Support/Chili Bar/zones.json`
-    public static var defaultURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base
-            .appendingPathComponent("Chili Bar", isDirectory: true)
-            .appendingPathComponent("zones.json")
-    }
+    public static var defaultURL: URL { JSONFile.applicationSupportURL("zones.json") }
 
     public static func load(from url: URL) throws -> [Zone] {
-        try JSONDecoder().decode([Zone].self, from: Data(contentsOf: url))
+        try JSONFile.load([Zone].self, from: url)
     }
 
     public static func save(_ zones: [Zone], to url: URL) throws {
-        try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-
-        let encoder = JSONEncoder()
-        // Pretty-printed with stable key order because a human edits this file by hand.
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(zones).write(to: url, options: .atomic)
+        try JSONFile.save(zones, to: url)
     }
 
-    /// Loads the config, seeding it with defaults the first time the app runs.
-    ///
-    /// A malformed file is *not* silently replaced — that would throw away hand-written config
-    /// on a typo. The error propagates so the app can say what is wrong with which file.
     public static func loadOrCreateDefaults(at url: URL) throws -> [Zone] {
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            try save(defaultZones, to: url)
-            return defaultZones
-        }
-        return try load(from: url)
+        try JSONFile.loadOrCreate([Zone].self, defaults: defaultZones, at: url)
     }
 }

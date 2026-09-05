@@ -2,24 +2,30 @@ import AppKit
 import SwiftUI
 import ChiliBarCore
 
-/// Owns the menu bar item: the rolling clock, the hover peek, and the click menu.
-final class StatusItemController: NSObject, NSMenuDelegate {
+/// Owns the menu bar item: the rolling clock, the Pomodoro session, the hover peek and the panel.
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let formatter = ClockFormatter()
+    private let notifier = Notifier()
 
     private var zones: [Zone] = []
     private var rotation = RotationState(zoneCount: 0)
+    private var timer = PomodoroTimer()
     private var configError: String?
+    /// The rest length currently running, so the picker can show which option is active.
+    private var currentRestLength: TimeInterval?
 
     private var clockTimer: Timer?
     private var rotationTimer: Timer?
+    /// Runs only during a session, to drive the seconds ticking down.
+    private var sessionTimer: Timer?
 
     private var hoverTracker: HoverTracker?
-    private var popover: NSPopover?
-    private var pendingPopoverClose: DispatchWorkItem?
+    private var peekPopover: NSPopover?
+    private var panelPopover: NSPopover?
+    private var pendingPeekClose: DispatchWorkItem?
 
-    /// Menu bar text is fully monospaced so that letters, not just digits, hold their width.
-    /// Combined with the pinned item width below, nothing in the bar can twitch mid-rotation.
+    /// Fully monospaced so letters hold their width too, not only digits.
     private let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
     private static let rotationInterval: TimeInterval = 4
@@ -27,23 +33,32 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     // MARK: - Lifecycle
 
     func start() {
+        loadSettings()
         loadZones()
         configureButton()
-        buildMenu()
+        notifier.start()
         render()
         startRotationTimer()
         scheduleNextMinuteTick()
     }
 
+    private func loadSettings() {
+        do {
+            timer.settings = try SettingsStore.loadOrCreateDefaults(at: SettingsStore.defaultURL)
+        } catch {
+            // Defaults still give a working timer; the panel says why the file was ignored.
+            configError = "settings.json: \(error.localizedDescription)"
+        }
+    }
+
     private func loadZones() {
         do {
             zones = try ZoneStore.loadOrCreateDefaults(at: ZoneStore.defaultURL)
-            configError = nil
         } catch {
-            // Fall back so the app still runs, but surface the reason in the menu rather
-            // than silently showing the wrong thing — or silently overwriting their file.
+            // Fall back so the app still runs, but surface the reason rather than silently
+            // showing the wrong thing — or silently overwriting what the user wrote.
             zones = ZoneStore.defaultZones
-            configError = error.localizedDescription
+            configError = "zones.json: \(error.localizedDescription)"
         }
         rotation.updateZoneCount(zones.count)
     }
@@ -51,6 +66,9 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func configureButton() {
         guard let button = statusItem.button else { return }
         button.font = font
+        button.imagePosition = .imageLeading
+        button.target = self
+        button.action = #selector(togglePanel)
 
         let tracker = HoverTracker(
             onEnter: { [weak self] in self?.showPeek() },
@@ -65,6 +83,21 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     private func render(at date: Date = Date()) {
         guard let button = statusItem.button else { return }
 
+        switch timer.phase {
+        case .idle:
+            // No chili while idle — its presence is the signal that a session is live.
+            button.image = nil
+            renderClock(on: button, at: date)
+        case .work:
+            button.image = ChiliIcon.working
+            renderCountdown(on: button, at: date)
+        case .rest:
+            button.image = ChiliIcon.resting
+            renderCountdown(on: button, at: date)
+        }
+    }
+
+    private func renderClock(on button: NSStatusBarButton, at date: Date) {
         let labels = formatter.paddedMenuBarLabels(for: zones, at: date)
         guard !labels.isEmpty else {
             button.title = "Chili Bar"
@@ -73,18 +106,25 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
 
         button.title = labels[min(rotation.index, labels.count - 1)]
-        pinWidth(to: labels)
+        pinWidth(to: labels, iconWidth: 0)
+    }
+
+    private func renderCountdown(on button: NSStatusBarButton, at date: Date) {
+        let text = CountdownFormatter.string(for: timer.remaining(at: date))
+        button.title = text
+        // Countdown strings are zero-padded and fixed length, so one sample pins the width.
+        pinWidth(to: [text], iconWidth: 20)
     }
 
     /// Pins the item to the width of the widest label.
     ///
     /// Padding the strings alone isn't enough — the item would still be measured per title.
-    /// Fixing the length is what stops every icon to the left of ours shifting every 4 seconds.
-    private func pinWidth(to labels: [String]) {
+    /// Fixing the length is what stops every icon to the left of ours shifting.
+    private func pinWidth(to labels: [String], iconWidth: CGFloat) {
         let widest = labels
             .map { ($0 as NSString).size(withAttributes: [.font: font]).width }
             .max() ?? 0
-        statusItem.length = ceil(widest) + 12
+        statusItem.length = ceil(widest) + 12 + iconWidth
     }
 
     // MARK: - Timers
@@ -104,28 +144,69 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         let timer = Timer(fire: nextMinute, interval: 0, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.render()
-            self.refreshPeekIfVisible()
+            self.refreshPopovers()
             self.scheduleNextMinuteTick()
         }
-        // .common so ticks continue while a menu is being tracked.
         RunLoop.main.add(timer, forMode: .common)
         clockTimer = timer
     }
 
     private func startRotationTimer() {
-        let timer = Timer(
-            timeInterval: Self.rotationInterval,
-            repeats: true
-        ) { [weak self] _ in
+        let rotationTimer = Timer(timeInterval: Self.rotationInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
+            // Rotation is paused during a session, so this is a no-op then.
             self.rotation.advance()
-            self.render()
+            if self.timer.phase == .idle {
+                self.render()
+            }
         }
-        RunLoop.main.add(timer, forMode: .common)
-        rotationTimer = timer
+        RunLoop.main.add(rotationTimer, forMode: .common)
+        self.rotationTimer = rotationTimer
     }
 
-    // MARK: - Hover peek
+    /// One-second ticking, alive only while a session is.
+    private func startSessionTimer() {
+        guard sessionTimer == nil else { return }
+        let sessionTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            self?.sessionTick()
+        }
+        RunLoop.main.add(sessionTimer, forMode: .common)
+        self.sessionTimer = sessionTimer
+    }
+
+    private func stopSessionTimer() {
+        sessionTimer?.invalidate()
+        sessionTimer = nil
+    }
+
+    private func sessionTick() {
+        let now = Date()
+        for event in timer.tick(at: now) {
+            notifier.post(event)
+            if case .workEnded(let restLength) = event {
+                currentRestLength = restLength
+            }
+        }
+        syncSessionState()
+        render(at: now)
+        refreshPopovers()
+    }
+
+    /// Keeps the rotation and the session timer in step with the phase.
+    private func syncSessionState() {
+        switch timer.phase {
+        case .idle:
+            currentRestLength = nil
+            rotation.resume()
+            stopSessionTimer()
+        case .work, .rest:
+            // The countdown owns the status item while a session runs.
+            rotation.pause()
+            startSessionTimer()
+        }
+    }
+
+    // MARK: - Peek and panel
 
     private func rows(at date: Date = Date()) -> [ZoneRow] {
         zones.map { zone in
@@ -138,12 +219,38 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         }
     }
 
-    private func showPeek() {
-        pendingPopoverClose?.cancel()
-        pendingPopoverClose = nil
+    private func panelState(at date: Date = Date()) -> PanelState {
+        PanelState(
+            phase: timer.phase,
+            isPaused: timer.isPaused,
+            countdown: CountdownFormatter.string(for: timer.remaining(at: date)),
+            completedSessions: timer.completedWorkSessions,
+            currentRestLength: currentRestLength,
+            rows: rows(at: date),
+            configError: configError
+        )
+    }
 
-        // The menu already shows everything the peek would, and stacking them looks broken.
-        guard statusItem.menu?.highlightedItem == nil, !(popover?.isShown ?? false) else { return }
+    private func makePanelController() -> NSHostingController<MenuPanelView> {
+        NSHostingController(
+            rootView: MenuPanelView(
+                state: panelState(),
+                onStart: { [weak self] in self?.startWork() },
+                onPauseResume: { [weak self] in self?.togglePause() },
+                onSkip: { [weak self] in self?.skip() },
+                onChooseRest: { [weak self] in self?.chooseRest($0) },
+                onEditZones: { [weak self] in self?.openConfigFile() },
+                onQuit: { NSApp.terminate(nil) }
+            )
+        )
+    }
+
+    private func showPeek() {
+        pendingPeekClose?.cancel()
+        pendingPeekClose = nil
+
+        // The panel already shows everything the peek would; stacking them looks broken.
+        guard !(panelPopover?.isShown ?? false), !(peekPopover?.isShown ?? false) else { return }
         guard let button = statusItem.button, !zones.isEmpty else { return }
 
         let popover = NSPopover()
@@ -151,7 +258,7 @@ final class StatusItemController: NSObject, NSMenuDelegate {
         popover.animates = false
         popover.contentViewController = NSHostingController(rootView: HoverPanelView(rows: rows()))
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        self.popover = popover
+        peekPopover = popover
     }
 
     /// Closes after a beat rather than immediately.
@@ -159,94 +266,103 @@ final class StatusItemController: NSObject, NSMenuDelegate {
     /// The pointer crosses a few pixels of dead space between the button and the popover;
     /// closing on the instant of exit makes the panel flicker as you approach it.
     private func schedulePeekClose() {
-        pendingPopoverClose?.cancel()
+        pendingPeekClose?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
-            self?.popover?.close()
-            self?.popover = nil
+            self?.peekPopover?.close()
+            self?.peekPopover = nil
         }
-        pendingPopoverClose = work
+        pendingPeekClose = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
     }
 
-    private func refreshPeekIfVisible() {
-        guard let popover, popover.isShown else { return }
-        popover.contentViewController = NSHostingController(rootView: HoverPanelView(rows: rows()))
-    }
+    @objc private func togglePanel() {
+        pendingPeekClose?.cancel()
+        peekPopover?.close()
+        peekPopover = nil
 
-    // MARK: - Menu
-
-    private func buildMenu() {
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
-    }
-
-    func menuNeedsUpdate(_ menu: NSMenu) {
-        menu.removeAllItems()
-
-        if let configError {
-            let item = NSMenuItem(title: "Config error — using defaults", action: nil, keyEquivalent: "")
-            item.toolTip = configError
-            menu.addItem(item)
-            menu.addItem(.separator())
+        if let panelPopover, panelPopover.isShown {
+            panelPopover.close()
+            self.panelPopover = nil
+            return
         }
 
-        for row in rows() {
-            let dot = row.isWorkingHours ? "●" : "○"
-            let item = NSMenuItem(
-                title: "\(row.label)   \(row.time)   \(row.dayAndDate)   \(dot)",
-                action: nil,
-                keyEquivalent: ""
-            )
-            item.attributedTitle = NSAttributedString(
-                string: item.title,
-                attributes: [.font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)]
-            )
-            menu.addItem(item)
+        guard let button = statusItem.button else { return }
+
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
+        popover.contentViewController = makePanelController()
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        panelPopover = popover
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        panelPopover = nil
+    }
+
+    /// Rebuilds whichever popover is open so its contents stay live.
+    private func refreshPopovers() {
+        if let peekPopover, peekPopover.isShown {
+            peekPopover.contentViewController = NSHostingController(rootView: HoverPanelView(rows: rows()))
         }
-
-        menu.addItem(.separator())
-        menu.addItem(
-            withTitle: "Edit Zones…",
-            action: #selector(openConfigFile),
-            keyEquivalent: ""
-        ).target = self
-        menu.addItem(
-            withTitle: "Reload Zones",
-            action: #selector(reloadZones),
-            keyEquivalent: "r"
-        ).target = self
-        menu.addItem(.separator())
-        menu.addItem(withTitle: "Quit Chili Bar", action: #selector(quit), keyEquivalent: "q").target = self
+        if let panelPopover, panelPopover.isShown {
+            panelPopover.contentViewController = makePanelController()
+        }
     }
 
-    func menuWillOpen(_ menu: NSMenu) {
-        // Freeze the rotation so rows don't shift while the pointer is over them.
-        rotation.pause()
-        popover?.close()
-        popover = nil
-    }
+    // MARK: - Session actions
 
-    func menuDidClose(_ menu: NSMenu) {
-        rotation.resume()
-    }
-
-    // MARK: - Actions
-
-    @objc private func openConfigFile() {
-        let url = ZoneStore.defaultURL
-        // Ensure the file exists before revealing it, or Finder opens an empty folder.
-        _ = try? ZoneStore.loadOrCreateDefaults(at: url)
-        NSWorkspace.shared.activateFileViewerSelecting([url])
-    }
-
-    @objc private func reloadZones() {
-        loadZones()
+    private func startWork() {
+        timer.startWork(at: Date())
+        currentRestLength = nil
+        syncSessionState()
         render()
+        refreshPopovers()
     }
 
-    @objc private func quit() {
-        NSApp.terminate(nil)
+    private func togglePause() {
+        let now = Date()
+        if timer.isPaused {
+            timer.resume(at: now)
+        } else {
+            timer.pause(at: now)
+        }
+        render(at: now)
+        refreshPopovers()
+    }
+
+    private func skip() {
+        let now = Date()
+        for event in timer.skip(at: now) {
+            notifier.post(event)
+            if case .workEnded(let restLength) = event {
+                currentRestLength = restLength
+            }
+        }
+        syncSessionState()
+        render(at: now)
+        refreshPopovers()
+    }
+
+    private func chooseRest(_ length: TimeInterval) {
+        let now = Date()
+        timer.startRest(length: length, at: now)
+        currentRestLength = length
+        syncSessionState()
+        render(at: now)
+        refreshPopovers()
+    }
+
+    // MARK: - Zones
+
+    private func openConfigFile() {
+        // Ensure both files exist before revealing them, or Finder opens an empty folder.
+        _ = try? ZoneStore.loadOrCreateDefaults(at: ZoneStore.defaultURL)
+        _ = try? SettingsStore.loadOrCreateDefaults(at: SettingsStore.defaultURL)
+        NSWorkspace.shared.activateFileViewerSelecting([
+            ZoneStore.defaultURL,
+            SettingsStore.defaultURL,
+        ])
     }
 }
