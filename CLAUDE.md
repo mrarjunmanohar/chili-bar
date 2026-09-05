@@ -15,9 +15,41 @@ the approved behaviour spec, the decisions already made, and what is still open.
   propose an `.xcodeproj` workflow or suggest running Xcode-only tooling.
 - Verified working under CLT: `swift build` with AppKit, SwiftUI, `NSHostingController`,
   `UserNotifications`, `NSTrackingArea`. Incremental builds ~4s.
-- **Unverified:** whether `swift test` / XCTest works without full Xcode. Check this before
-  relying on a test-first workflow.
+- **Testing works, but only via swift-testing and only with flags** (verified 2026-09-05).
+  `XCTest` is absent under CLT — `import XCTest` fails outright. Use `import Testing` / `@Test` /
+  `#expect`. Always run tests through `Scripts/test.sh`, never bare `swift test`.
+- `notarytool`, `stapler`, `codesign`, `hdiutil` and `iconutil` are all present under CLT, so
+  Phase 2 signing/notarization needs an Apple certificate but **not** an Xcode install.
 - `xcodegen` is installed; `tuist` and `swiftlint` are not.
+
+## Dependencies
+
+**Zero third-party packages.** `Package.swift` has no `.package(url:)` entries and should stay
+that way. Everything comes from the SDK: `AppKit`, `SwiftUI`, `Foundation`, `UserNotifications`
+(and `ServiceManagement` if launch-at-login is added).
+
+## Build and test
+
+```sh
+swift build                # app
+./Scripts/test.sh          # tests — wraps the flags below; bare `swift test` WILL fail
+```
+
+`Scripts/test.sh` exists because swift-testing under CLT needs four things bolted on:
+
+```sh
+FW=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
+swift test \
+  -Xswiftc -F -Xswiftc "$FW" \
+  -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
+  -Xlinker -F -Xlinker "$FW" \
+  -Xlinker -rpath -Xlinker "$FW"
+```
+
+Why each is needed: `-F` finds `Testing.framework`; the linker `-F` and `-rpath` let the test
+bundle load it at runtime; and `-disable-cross-import-overlays` works around
+`_Testing_Foundation.framework` shipping **no `.swiftmodule`** in CLT — without it, any test file
+that imports both `Testing` and `Foundation` fails with "no such module '_Testing_Foundation'".
 
 ## Architecture decisions
 
@@ -45,6 +77,8 @@ the approved behaviour spec, the decisions already made, and what is still open.
 
 - An `NSTrackingArea` owner must subclass **`NSResponder`**, not `NSObject`, or `mouseEntered`
   is never called. The error reads "method does not override any method from its superclass".
+- There is **no chili or pepper SF Symbol** (`carrot` and `flame` exist; chili does not). The
+  filled and outline chili are custom template images that have to be authored.
 
 ## Distribution
 

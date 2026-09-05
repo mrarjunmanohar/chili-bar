@@ -155,11 +155,58 @@ All time-dependent logic takes an injected `Date` (and `TimeZone`) rather than r
 internally, so behaviour across date boundaries and working-hours edges is testable
 deterministically.
 
-### Open question
+### Testing — resolved 2026-09-05
 
-Whether `swift test` works with Command Line Tools only is **unverified** — the spike was
-interrupted before it ran. If XCTest is unavailable without full Xcode, the testing approach needs
-revisiting before committing to TDD. Verify first thing on resume.
+TDD is viable, with caveats found by spike:
+
+- **`XCTest` is not available** under Command Line Tools. `import XCTest` fails with
+  "no such module 'XCTest'". Anything written against `XCTestCase` is a dead end here.
+- **swift-testing works** (`import Testing`, `@Test`, `#expect`) — `Testing.framework` ships a
+  complete x86_64 module in CLT — but needs four extra flags, wrapped in `Scripts/test.sh`:
+
+  ```sh
+  FW=/Library/Developer/CommandLineTools/Library/Developer/Frameworks
+  swift test \
+    -Xswiftc -F -Xswiftc "$FW" \
+    -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
+    -Xlinker -F -Xlinker "$FW" \
+    -Xlinker -rpath -Xlinker "$FW"
+  ```
+
+- The `-disable-cross-import-overlays` flag is not optional: `_Testing_Foundation.framework`
+  ships in CLT **with no `.swiftmodule`**, so importing `Testing` and `Foundation` in the same
+  file otherwise fails. This is a gap in the CLT payload, not an architecture problem — all the
+  binaries are universal.
+
+Verified end to end: two timezone/working-hours tests compiled, linked and passed in 0.005s.
+
+## Dependencies (verified 2026-09-05)
+
+**No third-party packages are required, and none should be added.** `Package.swift` will carry no
+`.package(url:)` entries.
+
+System frameworks, all confirmed present in the CLT SDK:
+
+| Framework | Used for |
+|---|---|
+| `AppKit` | status item, tracking area, panels |
+| `SwiftUI` | panel and settings content via `NSHostingController` |
+| `Foundation` | `TimeZone`, `Calendar`, `UserDefaults`, date formatting |
+| `UserNotifications` | the three notifications |
+| `ServiceManagement` | only if launch-at-login is added |
+
+Command-line tooling, all present under CLT: `codesign`, `hdiutil`, `ditto`, `plutil`, `sips`,
+`iconutil`, and — notably — `notarytool` and `stapler`. Phase 2 notarization therefore needs an
+Apple Developer certificate but **not** an Xcode install.
+
+### Asset dependency: the chili icon
+
+**There is no chili or pepper SF Symbol.** Probed directly: `pepper`, `pepper.fill`, `chili` and
+`chili.fill` are all absent, while `carrot`, `carrot.fill`, `flame` and `flame.fill` exist. So the
+filled and outline chili from §1 must be authored as custom template images (`isTemplate = true`,
+so they follow menu bar tint and dark mode automatically). Options: hand-authored PDF/SVG, or
+drawn with `NSBezierPath` in code so the shape stays diffable and no binary asset is needed. This
+is the one piece of genuine design work the project needs and it is not yet done.
 
 ## Constraints (verified 2026-09-04)
 
