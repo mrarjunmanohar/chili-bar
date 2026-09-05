@@ -20,10 +20,13 @@ One `NSStatusItem` with three states:
 |---|---|---|
 | Idle | `SF 09:14` → `LON 17:14` → `BLR 22:44 ○` | No icon. Cycles every ~4s. |
 | Working | `🌶 24:31` | Filled chili. Rotation paused. |
-| Resting | `🌶 08:12` | Outline chili (same glyph, hollow). Rotation paused. |
+| Resting | `🌶 08:12` | Same chili at ~35% opacity. Rotation paused. |
 
-**Chili visible ⇒ a session is live.** This is the core icon rule. Filled vs. outline separates
-work from rest without a second icon or extra text.
+**Chili visible ⇒ a session is live.** This is the core icon rule. Full colour vs. dimmed
+separates work from rest without a second icon or extra text.
+
+*(Revised 2026-09-05: originally specified as an outline chili. The supplied logo is solid pixel
+art, and an outline of it reads as a different icon, so rest dims the same artwork instead.)*
 
 Two required polish details:
 
@@ -149,7 +152,8 @@ Split so the logic is testable without a running app:
   state machine, rotation scheduling, label formatting/padding. This is what tests target.
 - `Sources/ChiliBar/` — AppKit/SwiftUI shell. Status item, tracking area, panels, settings window,
   notification delivery.
-- `Tests/ChiliBarCoreTests/` — XCTest against the core.
+- `Tests/ChiliBarCoreTests/` — swift-testing against the core. (XCTest is unavailable here; see
+  the testing section below.)
 
 All time-dependent logic takes an injected `Date` (and `TimeZone`) rather than reading the clock
 internally, so behaviour across date boundaries and working-hours edges is testable

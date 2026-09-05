@@ -3,7 +3,7 @@
 macOS menu bar app: a **Pomodoro timer** + a **rolling world clock** that cycles through
 colleagues' timezones. Inspired by TomatoBar, but the world clock is the distinguishing feature.
 
-**Status: design approved, no code written yet.**
+**Status: Stage 1 complete — the rolling world clock runs. Stage 2 (Pomodoro timer) not started.**
 
 Read `docs/superpowers/specs/2026-09-04-chili-bar-design.md` before doing any work here. It holds
 the approved behaviour spec, the decisions already made, and what is still open.
@@ -64,7 +64,8 @@ that imports both `Testing` and `Foundation` fails with "no such module '_Testin
 ## Product rules that are easy to get wrong
 
 - **The chili icon appears only while a session is running.** Idle shows clock text with no icon.
-  Filled chili = work, outline chili = rest. This is the core visual signal; don't dilute it.
+  Full-colour chili = work, same chili at ~35% opacity = rest. This is the core visual signal;
+  don't dilute it. (Not an outline chili — the logo is solid pixel art.)
 - **The status item must not change width** as the clock rotates, or every icon to its left
   twitches every few seconds. Pad labels to the widest, use monospaced digits.
 - Clock updates fire on the **real minute boundary**, not on an interval from launch.

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Chili Bar</string>
+    <key>CFBundleDisplayName</key>
+    <string>Chili Bar</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.junsterr.ChiliBar</string>
+    <key>CFBundleExecutable</key>
+    <string>ChiliBar</string>
+    <key>CFBundleIconFile</key>
+    <string>ChiliBar</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+
+    <!-- No Dock icon and no app switcher entry. Chili Bar lives only in the menu bar. -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <key>NSHumanReadableCopyright</key>
+    <string>Copyright © 2026 Arjun Manohar. MIT licensed.</string>
+</dict>
+</plist>
