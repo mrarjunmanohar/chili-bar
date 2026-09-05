@@ -44,6 +44,11 @@ Config lives in `~/Library/Application Support/Chili Bar/` as `zones.json` and `
 both hand-edited until the Stage 3 settings UI. Durations are in **minutes** on disk. To test
 notifications quickly, set `workMinutes: 1` and `warningMinutes: 0.33`.
 
+Zone hours are `"HH:mm"` strings (plain integer hours still decode, for older configs). A
+`closes` earlier than `opens` means an **overnight shift**, which belongs to the day it started
+— so Friday 18:30–02:30 counts as work at 01:00 on Saturday, but Saturday night does not. This
+is not an edge case here: anyone working another continent's hours has one.
+
 `Scripts/test.sh` exists because swift-testing under CLT needs four things bolted on:
 
 ```sh

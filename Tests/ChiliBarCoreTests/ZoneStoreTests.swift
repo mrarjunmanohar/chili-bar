@@ -42,7 +42,7 @@ struct ZoneStoreTests {
         #expect(zones.count == 1)
         #expect(zones.first?.label == "LON")
         #expect(zones.first?.timeZone.identifier == "Europe/London")
-        #expect(zones.first?.closesAtHour == 17)
+        #expect(zones.first?.closesAt == TimeOfDay("17:00"))
     }
 
     @Test("rejects a config file naming a timezone that does not exist")

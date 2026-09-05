@@ -8,29 +8,38 @@ public struct Zone: Equatable, Sendable {
     /// Short label shown in the menu bar, e.g. "SF". Kept short because menu bar space is scarce.
     public let label: String
     public let timeZone: TimeZone
-    /// Local hour the working day starts, inclusive.
-    public let opensAtHour: Int
-    /// Local hour the working day ends, exclusive — so 18 means 17:59 is the last working minute.
-    public let closesAtHour: Int
+    /// Start of the working day, inclusive.
+    public let opensAt: TimeOfDay
+    /// End of the working day, exclusive.
+    ///
+    /// May be *earlier* than `opensAt`, meaning the shift runs past midnight — which is what
+    /// happens to anyone working another continent's hours.
+    public let closesAt: TimeOfDay
 
-    public init(label: String, timeZone: TimeZone, opensAtHour: Int = 9, closesAtHour: Int = 18) {
+    public init(label: String, timeZone: TimeZone, opensAt: TimeOfDay, closesAt: TimeOfDay) {
         self.label = label
         self.timeZone = timeZone
-        self.opensAtHour = opensAtHour
-        self.closesAtHour = closesAtHour
+        self.opensAt = opensAt
+        self.closesAt = closesAt
     }
 
     /// Fails rather than silently falling back to UTC, so a typo in a timezone identifier
     /// surfaces as a bad config file instead of a clock that is quietly wrong.
-    public init?(label: String, timeZoneID: String, opensAtHour: Int = 9, closesAtHour: Int = 18) {
+    public init?(label: String, timeZoneID: String, opensAt: TimeOfDay, closesAt: TimeOfDay) {
         guard let timeZone = TimeZone(identifier: timeZoneID) else { return nil }
-        self.init(
-            label: label,
-            timeZone: timeZone,
-            opensAtHour: opensAtHour,
-            closesAtHour: closesAtHour
-        )
+        self.init(label: label, timeZone: timeZone, opensAt: opensAt, closesAt: closesAt)
     }
+
+    /// Convenience for whole-hour windows.
+    public init?(label: String, timeZoneID: String, opensAtHour: Int = 9, closesAtHour: Int = 18) {
+        guard let opensAt = TimeOfDay(hour: opensAtHour, minute: 0),
+              let closesAt = TimeOfDay(hour: closesAtHour, minute: 0)
+        else { return nil }
+        self.init(label: label, timeZoneID: timeZoneID, opensAt: opensAt, closesAt: closesAt)
+    }
+
+    /// Whether the shift runs past midnight into the following day.
+    public var isOvernight: Bool { closesAt <= opensAt }
 
     /// Whether it is a working weekday hour in this zone at the given instant.
     ///
@@ -40,13 +49,37 @@ public struct Zone: Equatable, Sendable {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = timeZone
 
-        let components = calendar.dateComponents([.hour, .weekday], from: date)
-        guard let hour = components.hour, let weekday = components.weekday else { return false }
+        let components = calendar.dateComponents([.hour, .minute, .weekday], from: date)
+        guard let hour = components.hour,
+              let minute = components.minute,
+              let weekday = components.weekday
+        else { return false }
 
-        // Calendar weekdays are 1 = Sunday ... 7 = Saturday, so Monday–Friday is 2...6.
-        guard (2...6).contains(weekday) else { return false }
+        let nowInMinutes = hour * 60 + minute
 
-        return hour >= opensAtHour && hour < closesAtHour
+        guard isOvernight else {
+            return isWeekday(weekday)
+                && nowInMinutes >= opensAt.minutesSinceMidnight
+                && nowInMinutes < closesAt.minutesSinceMidnight
+        }
+
+        // An overnight shift belongs to the day it *started*, which is what decides whether
+        // it counts as a working day. Friday's shift spilling into Saturday morning is still
+        // work; Saturday night is not.
+        if nowInMinutes >= opensAt.minutesSinceMidnight {
+            return isWeekday(weekday)
+        }
+        if nowInMinutes < closesAt.minutesSinceMidnight {
+            return isWeekday(previousDay(of: weekday))
+        }
+        return false
+    }
+
+    /// Calendar weekdays are 1 = Sunday ... 7 = Saturday, so Monday–Friday is 2...6.
+    private func isWeekday(_ weekday: Int) -> Bool { (2...6).contains(weekday) }
+
+    private func previousDay(of weekday: Int) -> Int {
+        weekday == 1 ? 7 : weekday - 1
     }
 }
 
@@ -57,8 +90,8 @@ extension Zone: Codable {
     private enum CodingKeys: String, CodingKey {
         case label
         case timeZoneID = "timezone"
-        case opensAtHour = "opens"
-        case closesAtHour = "closes"
+        case opensAt = "opens"
+        case closesAt = "closes"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -76,16 +109,45 @@ extension Zone: Codable {
         self.init(
             label: try container.decode(String.self, forKey: .label),
             timeZone: timeZone,
-            opensAtHour: try container.decode(Int.self, forKey: .opensAtHour),
-            closesAtHour: try container.decode(Int.self, forKey: .closesAtHour)
+            opensAt: try Self.decodeTime(from: container, forKey: .opensAt),
+            closesAt: try Self.decodeTime(from: container, forKey: .closesAt)
         )
+    }
+
+    /// Accepts `"18:30"` or a plain hour number.
+    ///
+    /// The integer form predates half-hour support; configs written against it must keep
+    /// working rather than breaking on upgrade.
+    private static func decodeTime(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> TimeOfDay {
+        if let hour = try? container.decode(Int.self, forKey: key) {
+            guard let time = TimeOfDay(hour: hour, minute: 0) else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: key, in: container,
+                    debugDescription: "\(hour) is not an hour between 0 and 23"
+                )
+            }
+            return time
+        }
+
+        let text = try container.decode(String.self, forKey: key)
+        guard let time = TimeOfDay(text) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key, in: container,
+                debugDescription: "'\(text)' is not a time in HH:mm form"
+            )
+        }
+        return time
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(label, forKey: .label)
         try container.encode(timeZone.identifier, forKey: .timeZoneID)
-        try container.encode(opensAtHour, forKey: .opensAtHour)
-        try container.encode(closesAtHour, forKey: .closesAtHour)
+        // Always written as HH:mm so half-hour windows survive a round trip.
+        try container.encode(opensAt.description, forKey: .opensAt)
+        try container.encode(closesAt.description, forKey: .closesAt)
     }
 }
