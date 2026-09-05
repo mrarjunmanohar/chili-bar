@@ -111,6 +111,17 @@ that imports both `Testing` and `Foundation` fails with "no such module '_Testin
 - There is **no chili or pepper SF Symbol** (`carrot` and `flame` exist; chili does not). The
   filled and outline chili are custom template images that have to be authored.
 
+## Running it day to day
+
+The built app lives at `dist/Chili Bar.app` inside the repo. Spotlight indexes it, so ⌘-Space
+"Chili Bar" relaunches it. Note `make-app.sh` deletes and recreates that bundle on every build,
+and `dist/` is gitignored.
+
+**Deferred until after Stage 3:** installing to `/Applications` (via a `make-app.sh --install`
+flag) and launch-at-login via `ServiceManagement`. Both were offered and postponed on 2026-09-06
+until the app has been sanity-checked in daily use — no point automating the launch of something
+still changing shape.
+
 ## Distribution
 
 Deferred to Phase 2 — build the app first. Homebrew's official cask needs 225 stars (or 90
