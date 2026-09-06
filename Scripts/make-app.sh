@@ -53,10 +53,15 @@ cp Resources/icons/chili.png Resources/icons/chili@2x.png "${CONTENTS}/Resources
 iconutil --convert icns Resources/icons/ChiliBar.iconset \
     --output "${CONTENTS}/Resources/ChiliBar.icns"
 
-# Ad-hoc signature. Enough for the app to run locally; real Developer ID signing and
-# notarization arrive in Phase 2 and slot in here without touching any Swift.
-echo "==> Signing (ad-hoc)"
-codesign --force --sign - --timestamp=none "${BUNDLE}" 2>&1 | sed 's/^/    /'
+# Ad-hoc signature carrying the sandbox entitlement. The sandbox is enforced by the
+# signature, so it is applied here rather than declared in Info.plist.
+#
+# Real Developer ID signing and notarization arrive in Phase 2 and slot in here
+# without touching any Swift.
+echo "==> Signing (ad-hoc, sandboxed)"
+codesign --force --sign - --timestamp=none \
+    --entitlements Resources/ChiliBar.entitlements \
+    "${BUNDLE}" 2>&1 | sed 's/^/    /'
 
 if [ "${INSTALL}" = true ]; then
     INSTALLED="/Applications/${APP_NAME}.app"

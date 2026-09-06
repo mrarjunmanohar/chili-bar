@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Chili Bar runs in the App Sandbox with no additional entitlements at all.
+
+      It needs nothing beyond its own container: no network, no file access outside its own
+      data, no camera, no contacts, no automation. Everything it does is timezone arithmetic
+      on the local clock plus two JSON files it owns.
+
+      Adding an entitlement here should be treated as a red flag, not a routine step.
+    -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+</dict>
+</plist>

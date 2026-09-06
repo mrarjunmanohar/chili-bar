@@ -38,7 +38,8 @@ chili, you're on the clock.
 - **A dot per zone** showing whether they're inside working hours right now.
 - **Pomodoro timer** with a heads-up *before* the session ends, so a break never lands mid-thought.
 - **Break length chosen in the moment** — 5, 10, 15 or 20 — not buried in settings.
-- No accounts, no network, no telemetry. It reads two JSON files on your Mac and nothing else.
+- **Sandboxed with no entitlements.** No network, no access to anything outside its own data.
+- No accounts, no telemetry. It reads two JSON files on your Mac and nothing else.
 
 ## Install
 
@@ -91,8 +92,15 @@ Montreal, daylight saving included, permanently.
 
 ## Editing the files directly
 
-Settings live in `~/Library/Application Support/Chili Bar/`. Edit them by hand if you prefer —
-Chili Bar notices within a couple of seconds and reloads. No relaunch.
+Settings live in
+
+```
+~/Library/Containers/com.junsterr.ChiliBar/Data/Library/Application Support/Chili Bar/
+```
+
+Edit them by hand if you prefer — Chili Bar notices within a couple of seconds and reloads. No
+relaunch. (The long path is because Chili Bar runs in Apple's App Sandbox; see
+[Security](#security).)
 
 **`zones.json`**
 
@@ -138,14 +146,34 @@ Chili Bar under System Settings → General → Login Items.
 
 ```sh
 swift build                       # compile
+./Scripts/test.sh                 # run the tests
 ./Scripts/make-app.sh             # build dist/Chili Bar.app
 ./Scripts/make-app.sh --install   # ...and install it to /Applications
 ```
+
+Use `./Scripts/test.sh`, not `swift test`. Command Line Tools ships swift-testing without the
+search paths it needs, and without `XCTest` at all; the script supplies the flags. It falls back
+to a plain `swift test` if you have full Xcode.
+
+The timezone logic — daylight saving, overnight shifts, borrowed hours — is where this app is
+easiest to break without noticing, so please run the tests before opening a pull request.
 
 Two targets: `ChiliBarCore` holds the logic and never imports AppKit, which is what keeps it
 testable; `ChiliBar` is the AppKit and SwiftUI shell.
 
 No third-party dependencies, and none wanted.
+
+## Security
+
+Chili Bar runs in Apple's App Sandbox and requests **no entitlements at all** — see
+[`Resources/ChiliBar.entitlements`](Resources/ChiliBar.entitlements), which is four lines long.
+
+That means macOS itself prevents it from reaching the network, reading your documents, or touching
+anything outside its own container, regardless of what the code does. It needs none of those: the
+app is timezone arithmetic on your local clock plus two JSON files it owns.
+
+There is no analytics, no crash reporting, no update check, and no third-party dependency of any
+kind. Anything you type into it stays on your Mac.
 
 ## Prior art
 
