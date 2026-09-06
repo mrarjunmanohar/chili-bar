@@ -6,14 +6,23 @@
 # bundle is put together by hand. Always run the bundled app rather than the bare binary in
 # .build/ — LSUIElement and, later, notification registration both need a real Info.plist.
 #
-# Usage: ./Scripts/make-app.sh [--debug]
+# Usage: ./Scripts/make-app.sh [--debug] [--install]
+#
+#   --install   also copy the result to /Applications and relaunch it from there.
+#               Launch-at-login records the app by path, so it needs a permanent location —
+#               a build in dist/ is deleted on the next run of this script.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIGURATION="release"
-if [ "${1:-}" = "--debug" ]; then
-    CONFIGURATION="debug"
-fi
+INSTALL=false
+for argument in "$@"; do
+    case "${argument}" in
+        --debug) CONFIGURATION="debug" ;;
+        --install) INSTALL=true ;;
+        *) echo "error: unknown option ${argument}" >&2; exit 2 ;;
+    esac
+done
 
 APP_NAME="Chili Bar"
 BUNDLE="dist/${APP_NAME}.app"
@@ -49,6 +58,28 @@ iconutil --convert icns Resources/icons/ChiliBar.iconset \
 echo "==> Signing (ad-hoc)"
 codesign --force --sign - --timestamp=none "${BUNDLE}" 2>&1 | sed 's/^/    /'
 
-echo
-echo "Built ${BUNDLE}"
-echo "Run it with:  open \"${BUNDLE}\""
+if [ "${INSTALL}" = true ]; then
+    INSTALLED="/Applications/${APP_NAME}.app"
+
+    echo "==> Installing to ${INSTALLED}"
+    # A running copy can't be overwritten cleanly, and the old process would keep its own
+    # status item alive alongside the new one.
+    if pgrep -f "${APP_NAME}.app/Contents/MacOS/ChiliBar" >/dev/null 2>&1; then
+        echo "    quitting the running copy"
+        pkill -f "${APP_NAME}.app/Contents/MacOS/ChiliBar" || true
+        sleep 1
+    fi
+
+    rm -rf "${INSTALLED}"
+    cp -R "${BUNDLE}" "${INSTALLED}"
+
+    echo
+    echo "Installed ${INSTALLED}"
+    echo "Opening it now. Enable 'Start Chili Bar when I log in' in Settings if you want it back after a restart."
+    open "${INSTALLED}"
+else
+    echo
+    echo "Built ${BUNDLE}"
+    echo "Run it with:     open \"${BUNDLE}\""
+    echo "Or install it:   ./Scripts/make-app.sh --install"
+fi

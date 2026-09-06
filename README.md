@@ -51,22 +51,18 @@ just Apple's Command Line Tools.
 xcode-select --install
 ```
 
-**2. Clone and build:**
+**2. Clone, build and install:**
 
 ```sh
 git clone https://github.com/junsterr/chili-bar.git
 cd chili-bar
-./Scripts/make-app.sh
+./Scripts/make-app.sh --install
 ```
 
-**3. Move it somewhere permanent and open it:**
+That builds Chili Bar, copies it to `/Applications`, and opens it. A chili-free clock appears in
+your menu bar. There's no Dock icon and no window — that's intended.
 
-```sh
-cp -R "dist/Chili Bar.app" /Applications/
-open "/Applications/Chili Bar.app"
-```
-
-A chili-free clock appears in your menu bar. There's no Dock icon and no window — that's intended.
+Leave off `--install` to build into `dist/` without touching `/Applications`.
 
 > **First launch:** macOS may say the app is from an unidentified developer, because it's signed
 > locally rather than with a paid Apple certificate. Right-click the app → **Open** → **Open**.
@@ -74,6 +70,7 @@ A chili-free clock appears in your menu bar. There's no Dock icon and no window 
 
 **To quit:** click the menu bar item → **Quit**.
 **To relaunch:** ⌘-Space → "Chili Bar".
+**To start it automatically:** Settings… → **Start Chili Bar when I log in**.
 
 ## Setting up your zones
 
@@ -115,6 +112,14 @@ Chili Bar notices within a couple of seconds and reloads. No relaunch.
 | `opens` / `closes` | `"HH:mm"`. A `closes` earlier than `opens` is an overnight shift. |
 | `hoursIn` | *Optional.* Evaluate the hours on another zone's clock. |
 
+## Starting it at login
+
+Settings… → **Start Chili Bar when I log in**.
+
+The toggle needs Chili Bar to be in `/Applications` — macOS remembers login items by location, and
+a build sitting in `dist/` gets deleted by the next build. If macOS blocks the registration, allow
+Chili Bar under System Settings → General → Login Items.
+
 **`settings.json`**
 
 ```json
@@ -135,6 +140,7 @@ the panel, rather than overwriting what you wrote.
 swift build              # compile
 ./Scripts/test.sh        # run the tests
 ./Scripts/make-app.sh    # build dist/Chili Bar.app
+./Scripts/make-app.sh --install   # ...and install it to /Applications
 ```
 
 Use `./Scripts/test.sh`, not `swift test`. Command Line Tools ships swift-testing without the

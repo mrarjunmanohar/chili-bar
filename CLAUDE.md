@@ -3,8 +3,8 @@
 macOS menu bar app: a **Pomodoro timer** + a **rolling world clock** that cycles through
 colleagues' timezones. Inspired by TomatoBar, but the world clock is the distinguishing feature.
 
-**Status: Stages 1–3 complete. Settings UI, README and CI are in.**
-Remaining: install to /Applications and launch-at-login (deferred), then distribution (Phase 2).
+**Status: Stages 1–3 complete, plus /Applications install and launch-at-login.**
+Remaining: distribution — own Homebrew tap and notarisation (Phase 2, spec §5).
 
 Read `docs/superpowers/specs/2026-09-04-chili-bar-design.md` before doing any work here. It holds
 the approved behaviour spec, the decisions already made, and what is still open.
@@ -118,10 +118,10 @@ The built app lives at `dist/Chili Bar.app` inside the repo. Spotlight indexes i
 "Chili Bar" relaunches it. Note `make-app.sh` deletes and recreates that bundle on every build,
 and `dist/` is gitignored.
 
-**Deferred until after Stage 3:** installing to `/Applications` (via a `make-app.sh --install`
-flag) and launch-at-login via `ServiceManagement`. Both were offered and postponed on 2026-09-06
-until the app has been sanity-checked in daily use — no point automating the launch of something
-still changing shape.
+`./Scripts/make-app.sh --install` builds and copies to `/Applications`, quitting any running copy
+first. Launch-at-login lives in Settings and uses `SMAppService`; it is deliberately disabled
+unless the app is running from `/Applications`, because login items are recorded by path and a
+build in `dist/` is deleted by the next build.
 
 ## Distribution
 

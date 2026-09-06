@@ -45,6 +45,8 @@ struct SettingsView: View {
     @State private var rotation: Double
     @State private var zones: [EditableZone]
     @State private var saveError: String?
+    @State private var launchAtLogin = LaunchAtLogin.isEnabled
+    @State private var launchError: String?
 
     private let onSave: (TimerSettings, [Zone]) throws -> Void
     private let onClose: () -> Void
@@ -73,6 +75,8 @@ struct SettingsView: View {
                     timerSection
                     Divider()
                     zonesSection
+                    Divider()
+                    generalSection
                 }
                 .padding(20)
             }
@@ -119,6 +123,51 @@ struct SettingsView: View {
             Text(unit).foregroundStyle(.secondary).font(.callout)
             Spacer()
         }
+    }
+
+    // MARK: - General
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("General").font(.headline)
+
+            // A binding that acts on set, rather than .onChange — the two-parameter
+            // onChange needs macOS 14 and this app targets 13.
+            Toggle("Start Chili Bar when I log in", isOn: Binding(
+                get: { launchAtLogin },
+                set: { setLaunchAtLogin($0) }
+            ))
+            .disabled(!LaunchAtLogin.isInApplicationsFolder)
+
+            if !LaunchAtLogin.isInApplicationsFolder {
+                Text("Move Chili Bar to your Applications folder to use this — login items are remembered by location, and this copy isn't in a permanent one.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if LaunchAtLogin.needsUserApproval {
+                Text("macOS is blocking this. Allow Chili Bar in System Settings → General → Login Items.")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if let launchError {
+                Text(launchError)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try LaunchAtLogin.set(enabled)
+            launchError = nil
+        } catch {
+            launchError = error.localizedDescription
+        }
+        // Read the real state back rather than trusting the toggle, so a registration that
+        // silently didn't take leaves the switch showing the truth.
+        launchAtLogin = LaunchAtLogin.isEnabled
     }
 
     // MARK: - Zones
