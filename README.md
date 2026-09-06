@@ -5,7 +5,7 @@
 <h1 align="center">Chili Bar</h1>
 
 <p align="center">
-  A Pomodoro timer and a rolling world clock, sharing one spot in your macOS menu bar.
+  A Pomodoro timer and a rolling world clock, sitting comfortably in your macOS menu bar.
 </p>
 
 ---
