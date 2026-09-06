@@ -11,16 +11,24 @@ public struct TimerSettings: Equatable, Sendable {
     public var defaultRestLength: TimeInterval
     /// How long before work ends the heads-up fires.
     public var warningLead: TimeInterval
+    /// Seconds each zone holds the menu bar before the rotation advances.
+    ///
+    /// Lives here because settings.json is the app's one settings file; `PomodoroTimer`
+    /// ignores it.
+    public var rotationSeconds: TimeInterval
 
     public init(
         workLength: TimeInterval = 25 * 60,
         defaultRestLength: TimeInterval = 5 * 60,
-        warningLead: TimeInterval = 2 * 60
+        warningLead: TimeInterval = 2 * 60,
+        rotationSeconds: TimeInterval = 4
     ) {
         self.workLength = workLength
         self.defaultRestLength = defaultRestLength
         // A warning at or beyond the work length would fire the instant work began.
         self.warningLead = min(warningLead, workLength / 2)
+        // Below a second the rotation spins as fast as the run loop allows.
+        self.rotationSeconds = max(1, rotationSeconds)
     }
 
     /// The quick-pick rest lengths offered when a break starts.
@@ -34,6 +42,7 @@ extension TimerSettings: Codable {
         case workMinutes
         case restMinutes
         case warningMinutes
+        case rotationSeconds
     }
 
     public init(from decoder: any Decoder) throws {
@@ -62,10 +71,14 @@ extension TimerSettings: Codable {
 
         // The initialiser clamps an oversized warning rather than rejecting it — it's a
         // harmless mistake with an obvious sensible reading.
+        // Absent in files written before the setting existed.
+        let rotation = try container.decodeIfPresent(Double.self, forKey: .rotationSeconds) ?? 4
+
         self.init(
             workLength: work * 60,
             defaultRestLength: rest * 60,
-            warningLead: max(0, warning) * 60
+            warningLead: max(0, warning) * 60,
+            rotationSeconds: rotation
         )
     }
 
@@ -74,5 +87,6 @@ extension TimerSettings: Codable {
         try container.encode(workLength / 60, forKey: .workMinutes)
         try container.encode(defaultRestLength / 60, forKey: .restMinutes)
         try container.encode(warningLead / 60, forKey: .warningMinutes)
+        try container.encode(rotationSeconds, forKey: .rotationSeconds)
     }
 }

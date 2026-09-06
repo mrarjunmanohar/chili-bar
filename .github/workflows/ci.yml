@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: swift --version
+
+      # GitHub runners have full Xcode, so Scripts/test.sh takes its plain `swift test`
+      # branch. Running it (rather than swift test directly) keeps CI on the same entry
+      # point contributors use locally.
+      - name: Test
+        run: ./Scripts/test.sh
+
+      - name: Build app bundle
+        run: ./Scripts/make-app.sh
+
+      - name: Check the bundle came out intact
+        run: |
+          test -x "dist/Chili Bar.app/Contents/MacOS/ChiliBar"
+          test -f "dist/Chili Bar.app/Contents/Resources/ChiliBar.icns"
+          test -f "dist/Chili Bar.app/Contents/Resources/chili.png"
+          plutil -lint "dist/Chili Bar.app/Contents/Info.plist"
+          # LSUIElement is what keeps Chili Bar out of the Dock; a bundle without it is broken.
+          test "$(plutil -extract LSUIElement raw "dist/Chili Bar.app/Contents/Info.plist")" = "true"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chili-bar-app
+          path: dist/Chili Bar.app

@@ -7,6 +7,7 @@ final class StatusItemController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let formatter = ClockFormatter()
     private let notifier = Notifier()
+    private let settingsWindow = SettingsWindowController()
 
     private var zones: [Zone] = []
     private var rotation = RotationState(zoneCount: 0)
@@ -47,7 +48,6 @@ final class StatusItemController: NSObject {
     /// Fully monospaced so letters hold their width too, not only digits.
     private let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
 
-    private static let rotationInterval: TimeInterval = 4
 
     // MARK: - Lifecycle
 
@@ -79,6 +79,7 @@ final class StatusItemController: NSObject {
         loadZones()
         // A shorter zone list can leave the rotation pointing past the end.
         rotation.updateZoneCount(zones.count)
+        startRotationTimer()
         render()
         refreshPopovers()
         NSLog("Chili Bar: reloaded config — \(zones.count) zones\(configError.map { ", error: \($0)" } ?? "")")
@@ -195,7 +196,8 @@ final class StatusItemController: NSObject {
     }
 
     private func startRotationTimer() {
-        let rotationTimer = Timer(timeInterval: Self.rotationInterval, repeats: true) { [weak self] _ in
+        rotationTimer?.invalidate()
+        let rotationTimer = Timer(timeInterval: timer.settings.rotationSeconds, repeats: true) { [weak self] _ in
             guard let self else { return }
             // Rotation is paused during a session, so this is a no-op then.
             self.rotation.advance()
@@ -282,6 +284,7 @@ final class StatusItemController: NSObject {
             onSkip: { [weak self] in self?.skip() },
             onChooseRest: { [weak self] in self?.chooseRest($0) },
             onEditZones: { [weak self] in self?.openConfigFile() },
+            onOpenSettings: { [weak self] in self?.openSettings() },
             onQuit: { NSApp.terminate(nil) }
         )
     }
@@ -382,6 +385,20 @@ final class StatusItemController: NSObject {
         syncSessionState()
         render(at: now)
         refreshPopovers()
+    }
+
+    private func openSettings() {
+        panelPopover.close()
+        settingsWindow.show(
+            settings: timer.settings,
+            zones: zones
+        ) { [weak self] settings, zones in
+            // Written to the same files a hand-edit would touch, so both routes agree and the
+            // file watcher reloads the app either way.
+            try SettingsStore.save(settings, to: SettingsStore.defaultURL)
+            try ZoneStore.save(zones, to: ZoneStore.defaultURL)
+            self?.reloadConfig()
+        }
     }
 
     // MARK: - Zones

@@ -3,8 +3,8 @@
 macOS menu bar app: a **Pomodoro timer** + a **rolling world clock** that cycles through
 colleagues' timezones. Inspired by TomatoBar, but the world clock is the distinguishing feature.
 
-**Status: Stages 1 and 2 complete — rolling world clock and Pomodoro timer both run.
-Stage 3 (settings UI, README, CI) not started.**
+**Status: Stages 1–3 complete. Settings UI, README and CI are in.**
+Remaining: install to /Applications and launch-at-login (deferred), then distribution (Phase 2).
 
 Read `docs/superpowers/specs/2026-09-04-chili-bar-design.md` before doing any work here. It holds
 the approved behaviour spec, the decisions already made, and what is still open.
@@ -41,7 +41,8 @@ Always run the bundled `.app`, never `.build/debug/ChiliBar` — `UNUserNotifica
 needs a real bundle identifier and `LSUIElement` needs the Info.plist.
 
 Config lives in `~/Library/Application Support/Chili Bar/` as `zones.json` and `settings.json`,
-both hand-edited until the Stage 3 settings UI. Durations are in **minutes** on disk. To test
+editable either in the settings window or by hand. The settings window writes the same files, so
+both routes agree and the watcher reloads either way. Durations are in **minutes** on disk. To test
 notifications quickly, set `workMinutes: 1` and `warningMinutes: 0.33`.
 
 Zone hours are `"HH:mm"` strings (plain integer hours still decode, for older configs). A

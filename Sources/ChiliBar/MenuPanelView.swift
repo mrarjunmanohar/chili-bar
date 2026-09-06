@@ -24,6 +24,7 @@ struct MenuPanelView: View {
     var onSkip: () -> Void
     var onChooseRest: (TimeInterval) -> Void
     var onEditZones: () -> Void
+    var onOpenSettings: () -> Void
     var onQuit: () -> Void
 
     private var configError: String? { state.configError }
@@ -156,7 +157,8 @@ struct MenuPanelView: View {
 
     private var footer: some View {
         HStack {
-            Button("Edit Config…", action: onEditZones)
+            Button("Settings…", action: onOpenSettings)
+            Button("Reveal Config", action: onEditZones)
             Spacer()
             Button("Quit", action: onQuit)
         }

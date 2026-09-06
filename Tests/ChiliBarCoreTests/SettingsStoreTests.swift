@@ -79,3 +79,43 @@ struct SettingsStoreTests {
         }
     }
 }
+
+@Suite("Rotation speed setting")
+struct RotationSpeedTests {
+    @Test("defaults to four seconds")
+    func defaultValue() {
+        #expect(TimerSettings().rotationSeconds == 4)
+    }
+
+    @Test("reads a custom rotation speed")
+    func readsCustom() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rot-\(UUID().uuidString).json")
+        try #"{ "workMinutes": 25, "restMinutes": 5, "warningMinutes": 2, "rotationSeconds": 8 }"#
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(try SettingsStore.load(from: file).rotationSeconds == 8)
+    }
+
+    // Older settings files predate this key and must keep working.
+    @Test("falls back to the default when the key is absent")
+    func absentKeyUsesDefault() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rot-\(UUID().uuidString).json")
+        try #"{ "workMinutes": 25, "restMinutes": 5, "warningMinutes": 2 }"#
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(try SettingsStore.load(from: file).rotationSeconds == 4)
+    }
+
+    // A zero or negative interval would spin the rotation as fast as the run loop allows.
+    @Test("clamps a rotation speed below one second")
+    func clampsTooFast() throws {
+        let file = FileManager.default.temporaryDirectory
+            .appendingPathComponent("rot-\(UUID().uuidString).json")
+        try #"{ "workMinutes": 25, "restMinutes": 5, "warningMinutes": 2, "rotationSeconds": 0 }"#
+            .write(to: file, atomically: true, encoding: .utf8)
+
+        #expect(try SettingsStore.load(from: file).rotationSeconds >= 1)
+    }
+}
