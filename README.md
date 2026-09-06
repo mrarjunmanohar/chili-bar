@@ -55,7 +55,7 @@ xcode-select --install
 **2. Clone, build and install:**
 
 ```sh
-git clone https://github.com/junsterr/chili-bar.git
+git clone https://github.com/mrarjunmanohar/chili-bar.git
 cd chili-bar
 ./Scripts/make-app.sh --install
 ```
