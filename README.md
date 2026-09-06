@@ -112,14 +112,6 @@ Chili Bar notices within a couple of seconds and reloads. No relaunch.
 | `opens` / `closes` | `"HH:mm"`. A `closes` earlier than `opens` is an overnight shift. |
 | `hoursIn` | *Optional.* Evaluate the hours on another zone's clock. |
 
-## Starting it at login
-
-Settings… → **Start Chili Bar when I log in**.
-
-The toggle needs Chili Bar to be in `/Applications` — macOS remembers login items by location, and
-a build sitting in `dist/` gets deleted by the next build. If macOS blocks the registration, allow
-Chili Bar under System Settings → General → Login Items.
-
 **`settings.json`**
 
 ```json
@@ -133,6 +125,14 @@ Chili Bar under System Settings → General → Login Items.
 
 If a file has a mistake in it, Chili Bar keeps running on defaults and tells you what was wrong in
 the panel, rather than overwriting what you wrote.
+
+## Starting it at login
+
+Settings… → **Start Chili Bar when I log in**.
+
+The toggle needs Chili Bar to be in `/Applications` — macOS remembers login items by location, and
+a build sitting in `dist/` gets deleted by the next build. If macOS blocks the registration, allow
+Chili Bar under System Settings → General → Login Items.
 
 ## Building from source
 
