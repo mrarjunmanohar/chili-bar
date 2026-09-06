@@ -15,11 +15,16 @@ jobs:
       - name: Show toolchain
         run: swift --version
 
-      # GitHub runners have full Xcode, so Scripts/test.sh takes its plain `swift test`
-      # branch. Running it (rather than swift test directly) keeps CI on the same entry
-      # point contributors use locally.
+      # The published repository does not ship the test suite, so this runs only in a
+      # checkout that has it. GitHub runners have full Xcode, so Scripts/test.sh takes its
+      # plain `swift test` branch.
       - name: Test
-        run: ./Scripts/test.sh
+        run: |
+          if [ -d Tests ]; then
+            ./Scripts/test.sh
+          else
+            echo "No test suite in this checkout — skipping."
+          fi
 
       - name: Build app bundle
         run: ./Scripts/make-app.sh

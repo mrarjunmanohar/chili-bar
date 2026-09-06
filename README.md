@@ -137,15 +137,10 @@ Chili Bar under System Settings → General → Login Items.
 ## Building from source
 
 ```sh
-swift build              # compile
-./Scripts/test.sh        # run the tests
-./Scripts/make-app.sh    # build dist/Chili Bar.app
+swift build                       # compile
+./Scripts/make-app.sh             # build dist/Chili Bar.app
 ./Scripts/make-app.sh --install   # ...and install it to /Applications
 ```
-
-Use `./Scripts/test.sh`, not `swift test`. Command Line Tools ships swift-testing without the
-search paths it needs, and without `XCTest` at all; the script supplies the flags. It falls back
-to a plain `swift test` if you have full Xcode.
 
 Two targets: `ChiliBarCore` holds the logic and never imports AppKit, which is what keeps it
 testable; `ChiliBar` is the AppKit and SwiftUI shell.
