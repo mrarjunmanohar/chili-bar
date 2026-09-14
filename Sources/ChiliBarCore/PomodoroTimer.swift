@@ -10,6 +10,12 @@ public enum TimerEvent: Equatable, Sendable {
     case endingSoon(remaining: TimeInterval)
     case workEnded(restLength: TimeInterval)
     case restEnded
+    /// Work finished while the machine was asleep, so nobody saw it happen.
+    ///
+    /// Kept distinct from `workEnded` because the response differs: this one does *not*
+    /// start a break. `endedAt` is when the interval actually ran out, which can be hours
+    /// before the tick that noticed.
+    case workEndedWhileAway(endedAt: Date)
 }
 
 /// The Pomodoro cycle: `idle → work → rest → idle`.
@@ -19,7 +25,8 @@ public enum TimerEvent: Equatable, Sendable {
 /// an injected `Date` instead of depending on wall-clock time.
 ///
 /// Rest returns to `idle` rather than auto-starting the next work interval, so the app can't
-/// quietly cycle all night after you've walked away.
+/// quietly cycle all night after you've walked away. For the same reason a break never starts
+/// across a sleep — see `tick(at:)`.
 public struct PomodoroTimer: Equatable, Sendable {
     public enum Phase: Equatable, Sendable {
         case idle
@@ -40,8 +47,22 @@ public struct PomodoroTimer: Equatable, Sendable {
     private var frozenRemaining: TimeInterval?
     /// Guards the pre-warning so it fires once per work interval, not on every tick after.
     private var hasWarned = false
+    /// When `tick` was last called. Nil before the first tick of an interval.
+    private var lastTickAt: Date?
     /// The rest length announced when the current work interval ends.
     private var pendingRestLength: TimeInterval
+
+    /// A gap between ticks longer than this means the process wasn't running.
+    ///
+    /// The shell ticks once a second, so ninety seconds is far outside anything a merely
+    /// busy run loop produces, while still being short enough to catch a quick lid close.
+    ///
+    /// Sleep is the case this was written for, but it deliberately doesn't try to identify
+    /// the cause — App Nap throttling a background menu bar app would trip it too, and that
+    /// is fine. The question being asked is not "did the Mac sleep" but "was anyone told the
+    /// interval ended", and a throttled process told them just as little as a sleeping one
+    /// did. Either way the safe answer is to stop rather than to start a break unannounced.
+    public static let awayThreshold: TimeInterval = 90
 
     public init(settings: TimerSettings = TimerSettings()) {
         self.settings = settings
@@ -64,6 +85,7 @@ public struct PomodoroTimer: Equatable, Sendable {
         frozenRemaining = nil
         isPaused = false
         hasWarned = false
+        lastTickAt = now
         pendingRestLength = settings.defaultRestLength
     }
 
@@ -76,6 +98,7 @@ public struct PomodoroTimer: Equatable, Sendable {
         endsAt = now.addingTimeInterval(length)
         frozenRemaining = nil
         isPaused = false
+        lastTickAt = now
     }
 
     public mutating func stop() {
@@ -84,6 +107,7 @@ public struct PomodoroTimer: Equatable, Sendable {
         frozenRemaining = nil
         isPaused = false
         hasWarned = false
+        lastTickAt = nil
     }
 
     public mutating func pause(at now: Date) {
@@ -97,6 +121,8 @@ public struct PomodoroTimer: Equatable, Sendable {
         endsAt = now.addingTimeInterval(frozenRemaining)
         self.frozenRemaining = nil
         isPaused = false
+        // A pause can last as long as a sleep. Resuming is not waking up.
+        lastTickAt = now
     }
 
     /// Ends the current interval immediately, emitting the same events it would have on
@@ -117,7 +143,14 @@ public struct PomodoroTimer: Equatable, Sendable {
 
     /// Advances the machine to `now`, returning anything that became true along the way.
     public mutating func tick(at now: Date) -> [TimerEvent] {
+        let previousTick = lastTickAt
+        lastTickAt = now
+
         guard phase != .idle, !isPaused else { return [] }
+
+        // No previous tick means this is the first one of the interval, not a gap.
+        let gap = previousTick.map { now.timeIntervalSince($0) } ?? 0
+        let wasAway = gap > Self.awayThreshold
 
         let timeLeft = remaining(at: now)
         var events: [TimerEvent] = []
@@ -137,11 +170,23 @@ public struct PomodoroTimer: Equatable, Sendable {
 
         switch phase {
         case .work:
-            completedWorkSessions += 1
-            let restLength = pendingRestLength
-            startRest(length: restLength, at: now)
-            events.append(.workEnded(restLength: restLength))
+            if wasAway {
+                // Don't hand back a break that started itself while the lid was shut. The
+                // user never saw the work interval end, so a running countdown on wake reads
+                // as the app doing something unprompted — which is exactly how it was
+                // reported. Not counted as completed either: it wasn't seen through.
+                let endedAt = endsAt ?? now
+                stop()
+                events.append(.workEndedWhileAway(endedAt: endedAt))
+            } else {
+                completedWorkSessions += 1
+                let restLength = pendingRestLength
+                startRest(length: restLength, at: now)
+                events.append(.workEnded(restLength: restLength))
+            }
         case .rest:
+            // A rest slept through needs no special handling: you were away, which is what
+            // a break is for, and idle is where rest ends anyway.
             stop()
             events.append(.restEnded)
         case .idle:

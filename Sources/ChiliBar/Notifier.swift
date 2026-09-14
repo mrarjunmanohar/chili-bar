@@ -75,6 +75,9 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         case .restEnded:
             content.title = "Back to work"
             content.body = "Break's over."
+        case .workEndedWhileAway(let endedAt):
+            content.title = "Session ended"
+            content.body = "Your focus session finished at \(clockTime(endedAt)). No break was started."
         }
 
         // nil trigger delivers immediately.
@@ -88,6 +91,15 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 NSLog("Chili Bar: could not post notification — \(error.localizedDescription)")
             }
         }
+    }
+
+    /// The wall-clock time the interval actually ran out — which can be hours before the
+    /// app noticed, so a relative "2 minutes ago" would be a lie.
+    private func clockTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.timeStyle = .short
+        formatter.dateStyle = .none
+        return formatter.string(from: date)
     }
 
     private func minutes(_ interval: TimeInterval) -> String {
