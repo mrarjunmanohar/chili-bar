@@ -99,6 +99,9 @@ struct PomodoroNotificationTests {
         var timer = newTimer()
         timer.startWork(at: t0)
         _ = timer.tick(at: t0.addingTimeInterval(23 * minute))
+        // Ticking right up to the boundary, as the one-second shell timer does. Leaping
+        // straight from 23 to 25 minutes would instead look like a sleeping Mac.
+        _ = timer.tick(at: t0.addingTimeInterval(25 * minute - 1))
 
         let events = timer.tick(at: t0.addingTimeInterval(25 * minute))
 
@@ -110,7 +113,9 @@ struct PomodoroNotificationTests {
     func announcesReturnToWork() {
         var timer = newTimer()
         timer.startWork(at: t0)
+        _ = timer.tick(at: t0.addingTimeInterval(25 * minute - 1))
         _ = timer.tick(at: t0.addingTimeInterval(25 * minute))
+        _ = timer.tick(at: t0.addingTimeInterval(30 * minute - 1))
 
         let events = timer.tick(at: t0.addingTimeInterval(30 * minute))
 
@@ -122,14 +127,21 @@ struct PomodoroNotificationTests {
     func noWarningDuringRest() {
         var timer = newTimer()
         timer.startWork(at: t0)
+        _ = timer.tick(at: t0.addingTimeInterval(25 * minute - 1))
         _ = timer.tick(at: t0.addingTimeInterval(25 * minute))
+        #expect(timer.phase == .rest)
 
         // 3 minutes into a 5 minute rest — 2 minutes left, which would be the work lead.
+        _ = timer.tick(at: t0.addingTimeInterval(28 * minute - 1))
         #expect(timer.tick(at: t0.addingTimeInterval(28 * minute)).isEmpty)
     }
 
     // A sleeping Mac means no ticks fire for a long stretch. The first tick on wake finds
     // the interval already over, and a "2 minutes left" alert at that point would be nonsense.
+    //
+    // The interval ending unobserved is reported as its own event and does NOT start a
+    // break — see PomodoroSleepTests. What matters here is only that no stale warning is
+    // bundled alongside it.
     @Test("does not warn when the interval has already ended, as after the Mac slept")
     func noStaleWarningAfterSleep() {
         var timer = newTimer()
@@ -137,7 +149,8 @@ struct PomodoroNotificationTests {
 
         let events = timer.tick(at: t0.addingTimeInterval(30 * minute))
 
-        #expect(events == [.workEnded(restLength: 5 * minute)])
+        #expect(events == [.workEndedWhileAway(endedAt: t0.addingTimeInterval(25 * minute))])
+        #expect(!events.contains { if case .endingSoon = $0 { return true } else { return false } })
     }
 
     @Test("emits nothing while idle")
@@ -243,6 +256,9 @@ struct PomodoroSessionCountTests {
     func countsCompletedWork() {
         var timer = newTimer()
         timer.startWork(at: t0)
+        // Ticking up to the boundary: a session only counts if the app was there to see it
+        // finish. One slept through is counted in PomodoroSleepTests, and it isn't.
+        _ = timer.tick(at: t0.addingTimeInterval(25 * minute - 1))
         _ = timer.tick(at: t0.addingTimeInterval(25 * minute))
 
         #expect(timer.completedWorkSessions == 1)
