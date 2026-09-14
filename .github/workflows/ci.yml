@@ -21,8 +21,12 @@ jobs:
       - name: Test
         run: ./Scripts/test.sh
 
+      # --no-install stages the bundle in dist/ and stops there. The default path installs
+      # to /Applications and deletes dist/ afterwards, which is right on a developer's Mac —
+      # two copies sharing the bundle identifier compete for one notification grant — but
+      # wrong on a runner, where there is nothing to install for and dist/ is the artifact.
       - name: Build app bundle
-        run: ./Scripts/make-app.sh
+        run: ./Scripts/make-app.sh --no-install
 
       - name: Check the bundle came out intact
         run: |
