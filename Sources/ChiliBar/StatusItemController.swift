@@ -15,6 +15,11 @@ final class StatusItemController: NSObject {
     private var configError: String?
     /// The rest length currently running, so the picker can show which option is active.
     private var currentRestLength: TimeInterval?
+    /// The alert currently on screen, if any. Held so the countdown inside it can be
+    /// refreshed each second alongside the menu bar.
+    private var activeAlert: SessionAlert?
+    /// Pending auto-dismiss, cancelled whenever a newer alert replaces this one.
+    private var pendingAlertDismiss: DispatchWorkItem?
 
     private var clockTimer: Timer?
     private var rotationTimer: Timer?
@@ -228,14 +233,41 @@ final class StatusItemController: NSObject {
     private func sessionTick() {
         let now = Date()
         for event in timer.tick(at: now) {
-            notifier.post(event)
-            if case .workEnded(let restLength) = event {
-                currentRestLength = restLength
-            }
+            handle(event, at: now)
         }
         syncSessionState()
         render(at: now)
         refreshPopovers()
+    }
+
+    /// Everything a transition should do: notify, update state, and put it on screen.
+    ///
+    /// The panel is not a fallback for the notification — both fire. A notification reaches
+    /// you in another full-screen app, where the menu bar isn't drawn at all; the panel
+    /// reaches you when notifications are refused, silenced by a Focus mode, or just missed.
+    private func handle(_ event: TimerEvent, at now: Date) {
+        notifier.post(event)
+
+        switch event {
+        case .endingSoon:
+            present(SessionAlert(
+                kind: .endingSoon,
+                countdown: CountdownFormatter.string(for: timer.remaining(at: now)),
+                restOption: nil
+            ))
+        case .workEnded(let restLength):
+            currentRestLength = restLength
+            present(SessionAlert(
+                kind: .breakStarted,
+                countdown: CountdownFormatter.string(for: restLength),
+                restOption: restLength
+            ))
+        case .restEnded:
+            present(SessionAlert(kind: .breakEnded, countdown: "", restOption: nil))
+        case .workEndedWhileAway:
+            currentRestLength = nil
+            present(SessionAlert(kind: .endedWhileAway, countdown: "", restOption: nil))
+        }
     }
 
     /// Keeps the rotation and the session timer in step with the phase.
@@ -301,14 +333,53 @@ final class StatusItemController: NSObject {
         )
     }
 
-    /// Closes an alert the user has acknowledged.
+    /// How long a transition alert stays up before getting out of the way.
+    ///
+    /// Long enough to read and act on from across the desk, short enough that it isn't a
+    /// dialog you have to dismiss. The one alert that doesn't auto-dismiss is the
+    /// slept-through one — that's the message the user demonstrably missed.
+    private static let alertDuration: TimeInterval = 10
+
+    private func present(_ alert: SessionAlert) {
+        pendingPeekClose?.cancel()
+        pendingPeekClose = nil
+        pendingAlertDismiss?.cancel()
+        pendingAlertDismiss = nil
+
+        activeAlert = alert
+
+        // The click panel already shows the countdown and the picker; stacking the alert on
+        // top of it would only cover what the user deliberately opened. The alert is still
+        // recorded so the panel can reflect it, and still expires on the same schedule —
+        // returning early here would strand activeAlert set, which blocks hover for good.
+        if !panelPopover.isShown, let button = statusItem.button {
+            peekController.rootView = peekView(content: .alert(alert))
+            if !peekPopover.isShown {
+                peekPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            }
+        }
+
+        guard alert.dismissesAutomatically else { return }
+        let work = DispatchWorkItem { [weak self] in self?.dismissAlert() }
+        pendingAlertDismiss = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.alertDuration, execute: work)
+    }
+
+    /// Closes an alert the user has acknowledged, or that has had its time.
     private func dismissAlert() {
+        pendingAlertDismiss?.cancel()
+        pendingAlertDismiss = nil
+        activeAlert = nil
         peekPopover.close()
     }
 
     private func showPeek() {
         pendingPeekClose?.cancel()
         pendingPeekClose = nil
+
+        // An alert is holding the popover. Hovering shouldn't replace the message the user
+        // is being shown.
+        guard activeAlert == nil else { return }
 
         // The panel already shows everything the peek would; stacking them looks broken.
         guard !panelPopover.isShown, !peekPopover.isShown else { return }
@@ -323,6 +394,9 @@ final class StatusItemController: NSObject {
     /// The pointer crosses a few pixels of dead space between the button and the popover;
     /// closing on the instant of exit makes the panel flicker as you approach it.
     private func schedulePeekClose() {
+        // Alerts close on their own schedule, not when the pointer wanders off.
+        guard activeAlert == nil else { return }
+
         pendingPeekClose?.cancel()
 
         let work = DispatchWorkItem { [weak self] in
@@ -334,7 +408,8 @@ final class StatusItemController: NSObject {
 
     @objc private func togglePanel() {
         pendingPeekClose?.cancel()
-        peekPopover.close()
+        // Opening the full panel supersedes the alert — everything it said is in there.
+        dismissAlert()
 
         if panelPopover.isShown {
             panelPopover.close()
@@ -354,7 +429,20 @@ final class StatusItemController: NSObject {
     /// showed up as a second, half-hidden peek panel stacked behind the real one.
     private func refreshPopovers() {
         if peekPopover.isShown {
-            peekController.rootView = peekView(content: .zones(rows()))
+            if let activeAlert {
+                // Only the counting-down alerts need re-rendering; the rest are static.
+                let refreshed = SessionAlert(
+                    kind: activeAlert.kind,
+                    countdown: activeAlert.countdown.isEmpty
+                        ? ""
+                        : CountdownFormatter.string(for: timer.remaining(at: Date())),
+                    restOption: currentRestLength
+                )
+                self.activeAlert = refreshed
+                peekController.rootView = peekView(content: .alert(refreshed))
+            } else {
+                peekController.rootView = peekView(content: .zones(rows()))
+            }
         }
         if panelPopover.isShown {
             panelController.rootView = panelView()
@@ -364,6 +452,7 @@ final class StatusItemController: NSObject {
     // MARK: - Session actions
 
     private func startWork() {
+        dismissAlert()
         // Permission can be revoked between launch and now; the panel should say so.
         notifier.refreshAuthorization()
         timer.startWork(at: Date())
@@ -387,10 +476,7 @@ final class StatusItemController: NSObject {
     private func skip() {
         let now = Date()
         for event in timer.skip(at: now) {
-            notifier.post(event)
-            if case .workEnded(let restLength) = event {
-                currentRestLength = restLength
-            }
+            handle(event, at: now)
         }
         syncSessionState()
         render(at: now)
@@ -398,6 +484,7 @@ final class StatusItemController: NSObject {
     }
 
     private func chooseRest(_ length: TimeInterval) {
+        dismissAlert()
         let now = Date()
         timer.startRest(length: length, at: now)
         currentRestLength = length
