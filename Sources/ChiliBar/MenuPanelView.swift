@@ -13,6 +13,10 @@ struct PanelState {
     /// running on defaults at that point, and silently ignoring the file the user edited
     /// is worse than saying so.
     let configError: String?
+    /// Set when macOS is refusing to deliver notifications. Shown for the same reason: a
+    /// timer that has quietly stopped telling you anything is the exact failure this app
+    /// was reported for.
+    let notificationsBlocked: Bool
 }
 
 /// The panel shown on click: session controls on top, world clock below.
@@ -25,6 +29,7 @@ struct MenuPanelView: View {
     var onChooseRest: (TimeInterval) -> Void
     var onEditZones: () -> Void
     var onOpenSettings: () -> Void
+    var onOpenNotificationSettings: () -> Void
     var onQuit: () -> Void
 
     private var configError: String? { state.configError }
@@ -35,6 +40,10 @@ struct MenuPanelView: View {
             Divider()
             if let configError {
                 configWarning(configError)
+                Divider()
+            }
+            if state.notificationsBlocked {
+                notificationWarning
                 Divider()
             }
             clocks
@@ -123,6 +132,26 @@ struct MenuPanelView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private var notificationWarning: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "bell.slash.fill")
+                .foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Notifications are off")
+                    .font(.system(size: 11, weight: .medium))
+                Text("Chili Bar still shows its own panel, but it can't reach you in a full-screen app.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Open System Settings", action: onOpenNotificationSettings)
+                    .buttonStyle(.link)
+                    .font(.system(size: 10))
             }
         }
         .padding(.horizontal, 14)

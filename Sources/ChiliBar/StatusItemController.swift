@@ -56,6 +56,7 @@ final class StatusItemController: NSObject {
         loadZones()
         configureButton()
         notifier.start()
+        notifier.onAuthorizationChange = { [weak self] in self?.refreshPopovers() }
         render()
         startRotationTimer()
         scheduleNextMinuteTick()
@@ -272,7 +273,8 @@ final class StatusItemController: NSObject {
             completedSessions: timer.completedWorkSessions,
             currentRestLength: currentRestLength,
             rows: rows(at: date),
-            configError: configError
+            configError: configError,
+            notificationsBlocked: notifier.isBlocked
         )
     }
 
@@ -285,6 +287,7 @@ final class StatusItemController: NSObject {
             onChooseRest: { [weak self] in self?.chooseRest($0) },
             onEditZones: { [weak self] in self?.openConfigFile() },
             onOpenSettings: { [weak self] in self?.openSettings() },
+            onOpenNotificationSettings: { [weak self] in self?.openNotificationSettings() },
             onQuit: { NSApp.terminate(nil) }
         )
     }
@@ -347,6 +350,8 @@ final class StatusItemController: NSObject {
     // MARK: - Session actions
 
     private func startWork() {
+        // Permission can be revoked between launch and now; the panel should say so.
+        notifier.refreshAuthorization()
         timer.startWork(at: Date())
         currentRestLength = nil
         syncSessionState()
@@ -399,6 +404,15 @@ final class StatusItemController: NSObject {
             try ZoneStore.save(zones, to: ZoneStore.defaultURL)
             self?.reloadConfig()
         }
+    }
+
+    /// Deep-links straight to the Notifications pane rather than the top of System Settings.
+    private func openNotificationSettings() {
+        panelPopover.close()
+        guard let url = URL(
+            string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
+        ) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: - Zones
