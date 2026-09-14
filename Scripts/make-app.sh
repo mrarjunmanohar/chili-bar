@@ -6,20 +6,22 @@
 # bundle is put together by hand. Always run the bundled app rather than the bare binary in
 # .build/ — LSUIElement and, later, notification registration both need a real Info.plist.
 #
-# Usage: ./Scripts/make-app.sh [--debug] [--install]
+# Usage: ./Scripts/make-app.sh [--debug] [--no-install]
 #
-#   --install   also copy the result to /Applications and relaunch it from there.
-#               Launch-at-login records the app by path, so it needs a permanent location —
-#               a build in dist/ is deleted on the next run of this script.
+#   (default)      build, sign, install to /Applications and launch it from there.
+#                  Launch-at-login records the app by path, so it needs a permanent location.
+#   --no-install   stage the bundle in dist/ without installing. Use sparingly: a second
+#                  copy shares the bundle identifier and competes for the same notification
+#                  grant, and only one of them can hold it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 CONFIGURATION="release"
-INSTALL=false
+INSTALL=true
 for argument in "$@"; do
     case "${argument}" in
         --debug) CONFIGURATION="debug" ;;
-        --install) INSTALL=true ;;
+        --no-install) INSTALL=false ;;
         *) echo "error: unknown option ${argument}" >&2; exit 2 ;;
     esac
 done
@@ -56,8 +58,19 @@ iconutil --convert icns Resources/icons/ChiliBar.iconset \
 # Ad-hoc signature carrying the sandbox entitlement. The sandbox is enforced by the
 # signature, so it is applied here rather than declared in Info.plist.
 #
-# Real Developer ID signing and notarization arrive in Phase 2 and slot in here
-# without touching any Swift.
+# Ad-hoc is deliberate, and switching it is not the easy win it looks like. An ad-hoc
+# signature has no certificate, so macOS pins the notification grant to a bare cdhash of
+# the binary: every rebuild invalidates it, and requestAuthorization then returns denied
+# WITHOUT prompting. The obvious fix — sign with a real certificate — does not work while
+# the app is sandboxed. A certificate-rooted sandboxed app needs a provisioning profile
+# naming the bundle identifier, and without one containermanagerd refuses to build the
+# container: the app then hangs in dyld inside _libsecinit_appsandbox, before main(), with
+# no window, no status item and no logging. Recovering from that needs a logout, because
+# containermanagerd caches the refusal per bundle identifier.
+#
+# So notifications are treated as a channel that may silently die, and the app carries its
+# own in-panel cues instead. Phase 2 revisits this together with Developer ID, notarization
+# and a provisioning profile, which is the combination that actually works.
 echo "==> Signing (ad-hoc, sandboxed)"
 codesign --force --sign - --timestamp=none \
     --entitlements Resources/ChiliBar.entitlements \
@@ -78,13 +91,21 @@ if [ "${INSTALL}" = true ]; then
     rm -rf "${INSTALLED}"
     cp -R "${BUNDLE}" "${INSTALLED}"
 
+    # One local copy only. A leftover dist/ bundle carries the same identifier and a
+    # different cdhash, so whichever one you happened to launch would decide whether
+    # notifications worked that day.
+    rm -rf "${BUNDLE}"
+
     echo
     echo "Installed ${INSTALLED}"
     echo "Opening it now. Enable 'Start Chili Bar when I log in' in Settings if you want it back after a restart."
     open "${INSTALLED}"
 else
     echo
-    echo "Built ${BUNDLE}"
+    echo "Staged ${BUNDLE} (not installed)"
     echo "Run it with:     open \"${BUNDLE}\""
-    echo "Or install it:   ./Scripts/make-app.sh --install"
+    echo "Install it with: ./Scripts/make-app.sh"
+    echo
+    echo "Note: this copy shares the bundle identifier with /Applications/${APP_NAME}.app."
+    echo "Only one of them can hold the notification grant. Delete it when you are done."
 fi
