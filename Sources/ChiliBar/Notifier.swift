@@ -2,22 +2,59 @@ import Foundation
 import UserNotifications
 import ChiliBarCore
 
-/// Delivers the three session notifications.
+/// Delivers the session notifications.
 ///
 /// `UNUserNotificationCenter` needs a real bundle identifier, so this only works from the
 /// assembled `.app` — running the bare binary out of `.build/` will fail to register.
+///
+/// Treat delivery as best-effort. Because the app is ad-hoc signed, macOS pins the grant to
+/// the binary's cdhash and drops it on any rebuild, answering the next request with a flat
+/// "denied" and no prompt. The panel carries its own cues for exactly that reason; these
+/// notifications are the channel that reaches a full-screen app, not the only one.
 final class Notifier: NSObject, UNUserNotificationCenterDelegate {
-    private var isAuthorized = false
+    /// Read and written on the main thread only — the authorization callbacks arrive on an
+    /// arbitrary queue, so every write hops back before touching this.
+    private(set) var isAuthorized = false
+
+    /// True once permission is known to be refused, as opposed to merely not asked yet.
+    ///
+    /// The distinction drives what the panel says: "not asked" resolves itself, "denied"
+    /// needs the user to go to System Settings.
+    private(set) var isBlocked = false
+
+    /// Called when the status changes, so the panel can redraw.
+    var onAuthorizationChange: (() -> Void)?
 
     func start() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
         center.requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
-            self?.isAuthorized = granted
             if let error {
                 NSLog("Chili Bar: notification authorization failed — \(error.localizedDescription)")
             } else if !granted {
                 NSLog("Chili Bar: notifications denied; the timer still runs, silently.")
+            }
+            self?.refreshAuthorization()
+        }
+    }
+
+    /// Re-reads the live status.
+    ///
+    /// `requestAuthorization` is answered once at launch, but permission can be revoked or
+    /// granted in System Settings at any point afterwards and nothing tells the app. Called
+    /// again at the start of every session so the panel can't go stale.
+    func refreshAuthorization() {
+        UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
+            let status = settings.authorizationStatus
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let wasAuthorized = self.isAuthorized
+                let wasBlocked = self.isBlocked
+                self.isAuthorized = (status == .authorized || status == .provisional)
+                self.isBlocked = (status == .denied)
+                if self.isAuthorized != wasAuthorized || self.isBlocked != wasBlocked {
+                    self.onAuthorizationChange?()
+                }
             }
         }
     }
