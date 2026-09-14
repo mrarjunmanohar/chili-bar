@@ -17,6 +17,10 @@ struct PanelState {
     /// timer that has quietly stopped telling you anything is the exact failure this app
     /// was reported for.
     let notificationsBlocked: Bool
+    /// Set while an unacknowledged slept-through session is still being reported. "Ready"
+    /// would be true but useless here — it's the state the app was already in, and saying
+    /// it hides the thing the user needs to know.
+    let endedWhileAway: Bool
 }
 
 /// The panel shown on click: session controls on top, world clock below.
@@ -59,9 +63,11 @@ struct MenuPanelView: View {
     private var session: some View {
         VStack(spacing: 10) {
             if state.phase == .idle {
-                Text("Ready")
+                Text(state.endedWhileAway ? "Session ended while you were away" : "Ready")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                 Button("Start Focus", action: onStart)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)

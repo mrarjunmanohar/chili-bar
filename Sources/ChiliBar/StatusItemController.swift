@@ -306,7 +306,12 @@ final class StatusItemController: NSObject {
             currentRestLength: currentRestLength,
             rows: rows(at: date),
             configError: configError,
-            notificationsBlocked: notifier.isBlocked
+            notificationsBlocked: notifier.isBlocked,
+            // The menu bar deliberately doesn't change: idle means world clock with no
+            // chili, because the chili's presence is what signals a live session and there
+            // isn't one. The alert popover carries the message instead, and it waits to be
+            // acknowledged rather than auto-dismissing.
+            endedWhileAway: activeAlert?.kind == .endedWhileAway
         )
     }
 
