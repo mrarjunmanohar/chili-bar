@@ -28,7 +28,7 @@ final class StatusItemController: NSObject {
     // One popover and one hosting controller each, reused for the life of the app.
     // Allocating a fresh NSPopover per hover orphaned the previous one — nothing held a
     // reference to close it, so it stayed on screen behind the new one.
-    private lazy var peekController = NSHostingController(rootView: HoverPanelView(rows: []))
+    private lazy var peekController = NSHostingController(rootView: PeekView(content: .zones([])))
     private lazy var peekPopover: NSPopover = {
         let popover = NSPopover()
         popover.behavior = .applicationDefined
@@ -292,6 +292,20 @@ final class StatusItemController: NSObject {
         )
     }
 
+    private func peekView(content: PeekContent) -> PeekView {
+        PeekView(
+            content: content,
+            onChooseRest: { [weak self] in self?.chooseRest($0) },
+            onStart: { [weak self] in self?.startWork() },
+            onDismiss: { [weak self] in self?.dismissAlert() }
+        )
+    }
+
+    /// Closes an alert the user has acknowledged.
+    private func dismissAlert() {
+        peekPopover.close()
+    }
+
     private func showPeek() {
         pendingPeekClose?.cancel()
         pendingPeekClose = nil
@@ -300,7 +314,7 @@ final class StatusItemController: NSObject {
         guard !panelPopover.isShown, !peekPopover.isShown else { return }
         guard let button = statusItem.button, !zones.isEmpty else { return }
 
-        peekController.rootView = HoverPanelView(rows: rows())
+        peekController.rootView = peekView(content: .zones(rows()))
         peekPopover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
     }
 
@@ -340,7 +354,7 @@ final class StatusItemController: NSObject {
     /// showed up as a second, half-hidden peek panel stacked behind the real one.
     private func refreshPopovers() {
         if peekPopover.isShown {
-            peekController.rootView = HoverPanelView(rows: rows())
+            peekController.rootView = peekView(content: .zones(rows()))
         }
         if panelPopover.isShown {
             panelController.rootView = panelView()
